@@ -67,6 +67,8 @@ void alloc_block(MemoryArena *arena, size_t size) {
 
    size_t size_with_header = sizeof(MemoryArenaBlock) + required_size;
    auto mem = (uint8_t *) calloc(1, size_with_header);
+   assert(mem);
+
    auto header = (MemoryArenaBlock *) mem;
    header->data = mem + sizeof(MemoryArenaBlock);
    header->size = required_size;
