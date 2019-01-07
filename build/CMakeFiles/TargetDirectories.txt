@@ -1,3 +1,0 @@
-/home/divan/git/tachometer-reader/build/CMakeFiles/rebuild_cache.dir
-/home/divan/git/tachometer-reader/build/CMakeFiles/tachometer_reader.dir
-/home/divan/git/tachometer-reader/build/CMakeFiles/edit_cache.dir
