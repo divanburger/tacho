@@ -9,74 +9,96 @@
 #include "util.h"
 #include "string.h"
 #include "timeline.h"
+#include "files.h"
+#include "ui.h"
 
-struct Context {
-   bool running;
-   int width;
-   int height;
+struct {
+   MemoryArena memory;
 
-   uint64_t time_counter;
-   double real_delta;
-   double proc_time;
+   DirectoryList profile_file_list;
+   double last_file_check;
 
-   int zoom;
-   int mouse_x;
-   int mouse_y;
-
-   int click_mouse_x;
-   int click_mouse_y;
    int64_t click_draw_y;
    int64_t click_draw_start_time;
-
-   bool click;
-   bool click_went_up;
-   bool click_went_down;
-   bool double_click;
-   double last_click;
 
    int64_t draw_y;
    int64_t draw_start_time;
    double draw_time_width;
 
+   Timeline timeline;
    TimelineEntry *highlighted_entry;
    TimelineEntry *active_entry;
 
-   MemoryArena temp;
-};
+   String  watch_path;
+   int64_t watch_panel_width;
+   bool    watch_panel_open;
+} state = {};
 
-void update(Context *ctx, Timeline *timeline, cairo_t *cr) {
+void tch_update(Context *ctx, cairo_t *cr) {
    char buffer[4096];
 
-   if (ctx->click) {
-      ctx->draw_start_time = (int64_t)(ctx->click_draw_start_time + ((ctx->click_mouse_x - ctx->mouse_x) * ctx->draw_time_width) / ctx->width);
-      ctx->draw_y = (int64_t)(ctx->click_draw_y + (ctx->click_mouse_y - ctx->mouse_y));
+   Timeline* timeline = &state.timeline;
+   int64_t timeline_view_x = 0;
+   int64_t timeline_view_width = ctx->width;
+
+   if (str_nonblank(state.watch_path)) {
+      state.watch_panel_open = true;
+      state.watch_panel_width = 300;
+      timeline_view_x = state.watch_panel_width;
+      timeline_view_width -= state.watch_panel_width;
+
+      if (state.last_file_check <= 0.0 || state.last_file_check < ctx->proc_time - 3.0) {
+         state.last_file_check = ctx->proc_time;
+
+         printf("Scanning directory\n");
+         file_list_free(&state.profile_file_list);
+         file_list_init(&state.profile_file_list);
+         file_read_directory(&state.profile_file_list, state.watch_path);
+      }
+   } else {
+      state.watch_panel_open = false;
    }
 
-   double mouse_time = ctx->draw_start_time + (ctx->mouse_x * ctx->draw_time_width) / ctx->width;
+   if (state.draw_time_width == 0) {
+      state.draw_start_time = timeline->start_time;
+      state.draw_time_width = timeline->end_time - timeline->start_time;
+   }
+
+   if (ctx->click_went_down) {
+      state.click_draw_start_time = state.draw_start_time;
+      state.click_draw_y = state.draw_y;
+   }
+
+   if (ctx->click) {
+      state.draw_start_time = (int64_t)(state.click_draw_start_time + ((ctx->click_mouse_x - ctx->mouse_x) * state.draw_time_width) / timeline_view_width);
+      state.draw_y = (int64_t)(state.click_draw_y + (ctx->click_mouse_y - ctx->mouse_y));
+   }
+
+   double mouse_time = state.draw_start_time + (ctx->mouse_x * state.draw_time_width) / timeline_view_width;
 
    {
       double zoom_factor = (ctx->zoom > 0 ? (1.0 / 1.1) : 1.1);
       int zoom_iters = (ctx->zoom > 0 ? ctx->zoom : -ctx->zoom);
       for (int i = 0; i < zoom_iters; i++) {
-         ctx->draw_time_width *= zoom_factor;
+         state.draw_time_width *= zoom_factor;
       }
       ctx->zoom = 0;
-      ctx->draw_start_time = (int64_t) (mouse_time - (ctx->mouse_x * ctx->draw_time_width) / ctx->width);
+      state.draw_start_time = (int64_t) (mouse_time - (ctx->mouse_x * state.draw_time_width) / timeline_view_width);
    }
 
-   if (ctx->draw_start_time < timeline->start_time) {
-      ctx->draw_start_time = timeline->start_time;
+   if (state.draw_start_time < timeline->start_time) {
+      state.draw_start_time = timeline->start_time;
    }
 
-   if (ctx->draw_time_width > (timeline->end_time - timeline->start_time)) {
-      ctx->draw_time_width = timeline->end_time - timeline->start_time;
+   if (state.draw_time_width > (timeline->end_time - timeline->start_time)) {
+      state.draw_time_width = timeline->end_time - timeline->start_time;
    }
 
-   if (ctx->draw_y < 0) {
-      ctx->draw_y = 0;
+   if (state.draw_y < 0) {
+      state.draw_y = 0;
    }
 
-   double draw_end_time = ctx->draw_start_time + ctx->draw_time_width;
+   double draw_end_time = state.draw_start_time + state.draw_time_width;
 
    cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
    cairo_paint(cr);
@@ -89,34 +111,37 @@ void update(Context *ctx, Timeline *timeline, cairo_t *cr) {
 
    cairo_set_line_width(cr, 1.0);
 
-   double width_scale = ctx->width / ctx->draw_time_width;
+   double width_scale = timeline_view_width / state.draw_time_width;
 
    for (TimelineChunk *chunk = timeline->first; chunk; chunk = chunk->next) {
       for (int index = 0; index < chunk->entry_count; index++) {
          TimelineEntry *entry = chunk->entries + index;
 
-         if (entry->end_time < ctx->draw_start_time || entry->start_time > draw_end_time) continue;
+         if (entry->end_time < state.draw_start_time || entry->start_time > draw_end_time) continue;
 
-         double x0 = (entry->start_time - ctx->draw_start_time) * width_scale;
-         double x1 = (entry->end_time - ctx->draw_start_time) * width_scale;
+         double x0 = (entry->start_time - state.draw_start_time) * width_scale;
+         double x1 = (entry->end_time - state.draw_start_time) * width_scale;
 
          if (x0 < 0.0) x0 = 0.0;
-         if (x1 > ctx->width) x1 = ctx->width;
+         if (x1 > timeline_view_width) x1 = timeline_view_width;
 
          double w = x1 - x0;
 
+         x0 += timeline_view_x;
+         x1 += timeline_view_x;
+
          if (w >= 0.1) {
-            double y0 = entry->depth * 15 - ctx->draw_y;
+            double y0 = entry->depth * 15 - state.draw_y;
 
             if (ctx->mouse_x >= x0 && ctx->mouse_x <= x1 && ctx->mouse_y >= y0 && ctx->mouse_y < y0 + 15) {
-               ctx->highlighted_entry = entry;
+               state.highlighted_entry = entry;
             }
 
             if (w >= 20.0) {
                double b = 0.6;
-               if (entry == ctx->active_entry) {
+               if (entry == state.active_entry) {
                   b = 1.0;
-               } else if (entry == ctx->highlighted_entry) {
+               } else if (entry == state.highlighted_entry) {
                   b = 0.8;
                }
 
@@ -169,16 +194,43 @@ void update(Context *ctx, Timeline *timeline, cairo_t *cr) {
       }
    }
 
-   if (ctx->highlighted_entry && ctx->click_went_up && (abs(ctx->click_mouse_x - ctx->mouse_x) <= 2)) {
-      ctx->active_entry = ctx->highlighted_entry;
+   if (state.watch_panel_open) {
+      cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
+      cairo_rectangle(cr, 0, 0, state.watch_panel_width, ctx->height);
+      cairo_fill_preserve(cr);
+      cairo_clip(cr);
+
+      double cur_y = 2.0 + font_extents.ascent;
+
+      for (auto block = state.profile_file_list.first; block; block = block->next) {
+         for (int i = 0; i < block->count; i++) {
+            File *file = block->files + i;
+
+            cairo_move_to(cr, 2.0, cur_y);
+            cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+            cairo_show_text(cr, file->name.data);
+
+            cur_y += font_extents.height * 2 + 4;
+         }
+      }
+
+      cairo_set_source_rgb(cr, 0.9, 0.9, 0.9);
+      cairo_move_to(cr, state.watch_panel_width, 0.0);
+      cairo_line_to(cr, state.watch_panel_width, ctx->height);
+      cairo_stroke(cr);
+      cairo_reset_clip(cr);
+   }
+
+   if (state.highlighted_entry && ctx->click_went_up && (abs(ctx->click_mouse_x - ctx->mouse_x) <= 2)) {
+      state.active_entry = state.highlighted_entry;
       if (ctx->double_click) {
-         ctx->draw_start_time = ctx->active_entry->start_time;
-         ctx->draw_time_width = ctx->active_entry->end_time - ctx->active_entry->start_time;
+         state.draw_start_time = state.active_entry->start_time;
+         state.draw_time_width = state.active_entry->end_time - state.active_entry->start_time;
       }
    }
 
-   if (ctx->active_entry) {
-      snprintf(buffer, array_size(buffer), "%.*s - events: %i - %.*s:%i", str_prt(ctx->active_entry->name), ctx->active_entry->events, str_prt(ctx->active_entry->path), ctx->active_entry->line_no);
+   if (state.active_entry) {
+      snprintf(buffer, array_size(buffer), "%.*s - events: %i - %.*s:%i", str_prt(state.active_entry->name), state.active_entry->events, str_prt(state.active_entry->path), state.active_entry->line_no);
       cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
       cairo_move_to(cr, 2, ctx->height - 2 - font_extents.descent);
       cairo_show_text(cr, buffer);
@@ -191,130 +243,26 @@ int main(int argc, char **args) {
       return 1;
    }
 
-   Timeline timeline_mem;
-   Timeline *timeline = &timeline_mem;
-   if (!tm_read_file(timeline, args[1])) {
-      printf("Could not read file %s", args[1]);
+   Timeline *timeline = &state.timeline;
+
+   String arg_file_name = str_copy(&state.memory, args[1]);
+   File arg_file = file_stat(arg_file_name);
+
+   if (arg_file.type == FILE_TYPE_FILE) {
+      printf("Reading file: %s\n", args[1]);
+      if (!tm_read_file(timeline, args[1])) {
+         printf("Could not read file %s\n", args[1]);
+         return 2;
+      }
+   } else if (arg_file.type == FILE_TYPE_DIRECTORY) {
+      tm_init(timeline);
+      printf("Watching directory: %s\n", args[1]);
+      state.watch_path = arg_file_name;
+   } else {
+      printf("Unknown file type %s\n", args[1]);
       return 2;
    }
 
-   if (SDL_Init(SDL_INIT_VIDEO) == 0) {
-      SDL_Window *window = nullptr;
-      SDL_Renderer *renderer = nullptr;
-
-      Context ctx = {};
-      ctx.running = true;
-      ctx.width = 640;
-      ctx.height = 480;
-
-      ctx.draw_start_time = timeline->start_time;
-      ctx.draw_time_width = timeline->end_time - timeline->start_time;
-
-      arena_init(&ctx.temp);
-
-      if (SDL_CreateWindowAndRenderer(ctx.width, ctx.height, SDL_WINDOW_RESIZABLE, &window, &renderer) == 0) {
-         auto backbuffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, ctx.width,
-                                             ctx.height);
-
-         while (ctx.running) {
-            auto now = SDL_GetPerformanceCounter();
-            ctx.real_delta = (double)(now - ctx.time_counter) / SDL_GetPerformanceFrequency();
-            if (ctx.real_delta > 1.0) ctx.real_delta = 1.0;
-
-            ctx.time_counter = now;
-            ctx.proc_time += ctx.real_delta;
-
-            ctx.click_went_down = false;
-            ctx.click_went_up = false;
-            ctx.double_click = false;
-
-            SDL_Event event;
-            while (SDL_PollEvent(&event)) {
-               switch (event.type) {
-                  case SDL_QUIT: {
-                     ctx.running = false;
-                  }
-                     break;
-                  case SDL_MOUSEWHEEL: {
-                     ctx.zoom += event.wheel.y;
-                  }
-                     break;
-                  case SDL_MOUSEMOTION: {
-                     ctx.mouse_x = event.motion.x;
-                     ctx.mouse_y = event.motion.y;
-                  }
-                     break;
-                  case SDL_MOUSEBUTTONDOWN: {
-                     ctx.mouse_x = event.button.x;
-                     ctx.mouse_y = event.button.y;
-                     ctx.click_mouse_x = event.button.x;
-                     ctx.click_mouse_y = event.button.y;
-                     ctx.click_draw_start_time = ctx.draw_start_time;
-                     ctx.click_draw_y = ctx.draw_y;
-                     ctx.click = true;
-                     ctx.click_went_down = true;
-                  }
-                     break;
-                  case SDL_MOUSEBUTTONUP: {
-                     ctx.mouse_x = event.button.x;
-                     ctx.mouse_y = event.button.y;
-                     ctx.click = false;
-                     ctx.click_went_up = true;
-
-                     if (ctx.last_click >= ctx.proc_time - 0.3) {
-                        ctx.double_click = true;
-                     }
-                     ctx.last_click = ctx.proc_time;
-                  }
-                     break;
-                  case SDL_WINDOWEVENT: {
-                     switch (event.window.event) {
-                        case SDL_WINDOWEVENT_RESIZED:
-                        case SDL_WINDOWEVENT_SIZE_CHANGED: {
-                           ctx.width = event.window.data1;
-                           ctx.height = event.window.data2;
-
-                           SDL_DestroyTexture(backbuffer);
-                           backbuffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
-                                                          SDL_TEXTUREACCESS_STREAMING, ctx.width, ctx.height);
-
-                        }
-                           break;
-                        default: {
-                           break;
-                        }
-                     }
-                  }
-                  default: {
-                     break;
-                  }
-               }
-            }
-
-            void *pixels;
-            int pitch;
-            SDL_LockTexture(backbuffer, nullptr, &pixels, &pitch);
-            auto cairo_surface = cairo_image_surface_create_for_data((uint8_t *) pixels, CAIRO_FORMAT_ARGB32, ctx.width,
-                                                                     ctx.height, pitch);
-            auto cairo = cairo_create(cairo_surface);
-
-            auto temp_section = begin_temp_section(&ctx.temp);
-
-            update(&ctx, timeline, cairo);
-
-            end_temp_section(temp_section);
-
-            SDL_UnlockTexture(backbuffer);
-
-            SDL_RenderCopy(renderer, backbuffer, nullptr, nullptr);
-            SDL_RenderPresent(renderer);
-         }
-      }
-
-      if (renderer) SDL_DestroyRenderer(renderer);
-      if (window) SDL_DestroyWindow(window);
-   }
-
-   SDL_Quit();
+   ui_run(tch_update);
    return 0;
 }

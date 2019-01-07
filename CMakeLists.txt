@@ -7,6 +7,6 @@ find_package(SDL2 REQUIRED)
 
 include_directories(${SDL2_INCLUDE_DIRS})
 
-add_executable(tachometer_reader main.cpp string.cpp timeline.cpp timeline.h memory.cpp memory.h)
+add_executable(tachometer_reader main.cpp string.cpp timeline.cpp memory.cpp files.cpp ui.cpp)
 
 target_link_libraries(tachometer_reader ${SDL2_LIBRARIES} cairo)
