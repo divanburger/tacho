@@ -1,0 +1,1 @@
+/usr/bin/c++     CMakeFiles/tachometer_reader.dir/main.cpp.o CMakeFiles/tachometer_reader.dir/string.cpp.o CMakeFiles/tachometer_reader.dir/timeline.cpp.o CMakeFiles/tachometer_reader.dir/memory.cpp.o  -o tachometer_reader -L/usr/lib64  -lSDL2 -lcairo 

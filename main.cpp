@@ -55,7 +55,6 @@ void update(Context *ctx, Timeline *timeline, cairo_t *cr) {
    double mouse_time = ctx->draw_start_time + (ctx->mouse_x * ctx->draw_time_width) / ctx->width;
 
    {
-      double old_width = ctx->draw_time_width;
       double zoom_factor = (ctx->zoom > 0 ? (1.0 / 1.1) : 1.1);
       int zoom_iters = (ctx->zoom > 0 ? ctx->zoom : -ctx->zoom);
       for (int i = 0; i < zoom_iters; i++) {
@@ -89,9 +88,6 @@ void update(Context *ctx, Timeline *timeline, cairo_t *cr) {
    cairo_font_extents(cr, &font_extents);
 
    cairo_set_line_width(cr, 1.0);
-
-//   int stack_index = 0;
-//   TimelineEntry* stack[1024];
 
    double width_scale = ctx->width / ctx->draw_time_width;
 
@@ -201,15 +197,6 @@ int main(int argc, char **args) {
       printf("Could not read file %s", args[1]);
       return 2;
    }
-
-//   if (!tm_output_html(timeline, "output.html")) {
-//      printf("Could not read file %s", args[1]);
-//      return 2;
-//   }
-
-//   uint64_t allocated, used;
-//   arena_stats(&timeline->arena, &allocated, &used);
-//   printf("Timeline memory: allocated: %lu MB used: %lu MB\n", (allocated >> 20), (used >> 20));
 
    if (SDL_Init(SDL_INIT_VIDEO) == 0) {
       SDL_Window *window = nullptr;

@@ -38,6 +38,7 @@ struct Timeline {
    int64_t start_time;
    int64_t end_time;
 
+   String name;
    MemoryArena arena;
 };
 
