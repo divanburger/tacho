@@ -11,6 +11,7 @@
 #include "timeline.h"
 #include "files.h"
 #include "ui.h"
+#include "rect.h"
 
 struct {
    MemoryArena memory;
@@ -34,30 +35,24 @@ struct {
    bool    watch_panel_open;
 } state = {};
 
-void tch_update(Context *ctx, cairo_t *cr) {
+void timeline_update(Context *ctx, cairo_t *cr, Timeline* timeline, irect area) {
    char buffer[4096];
 
-   Timeline* timeline = &state.timeline;
-   int64_t timeline_view_x = 0;
-   int64_t timeline_view_width = ctx->width;
+   int header_height = 20;
+   int blocks_y = area.y + header_height;
 
-   if (str_nonblank(state.watch_path)) {
-      state.watch_panel_open = true;
-      state.watch_panel_width = 300;
-      timeline_view_x = state.watch_panel_width;
-      timeline_view_width -= state.watch_panel_width;
+   cairo_set_font_size(cr, 10);
 
-      if (state.last_file_check <= 0.0 || state.last_file_check < ctx->proc_time - 3.0) {
-         state.last_file_check = ctx->proc_time;
+   cairo_font_extents_t font_extents;
+   cairo_font_extents(cr, &font_extents);
 
-         printf("Scanning directory\n");
-         file_list_free(&state.profile_file_list);
-         file_list_init(&state.profile_file_list);
-         file_read_directory(&state.profile_file_list, state.watch_path);
-      }
-   } else {
-      state.watch_panel_open = false;
-   }
+   cairo_set_source_rgb(cr, 0.3, 0.3, 0.3);
+   cairo_rectangle(cr, area.x, area.y, area.w, header_height);
+   cairo_fill(cr);
+
+   cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+   cairo_move_to(cr, area.x + 4, area.y + (header_height - font_extents.height) * 0.5 + font_extents.ascent);
+   cairo_show_text(cr, timeline->name.data);
 
    if (state.draw_time_width == 0) {
       state.draw_start_time = timeline->start_time;
@@ -70,11 +65,11 @@ void tch_update(Context *ctx, cairo_t *cr) {
    }
 
    if (ctx->click) {
-      state.draw_start_time = (int64_t)(state.click_draw_start_time + ((ctx->click_mouse_x - ctx->mouse_x) * state.draw_time_width) / timeline_view_width);
+      state.draw_start_time = (int64_t)(state.click_draw_start_time + ((ctx->click_mouse_x - ctx->mouse_x) * state.draw_time_width) / area.w);
       state.draw_y = (int64_t)(state.click_draw_y + (ctx->click_mouse_y - ctx->mouse_y));
    }
 
-   double mouse_time = state.draw_start_time + (ctx->mouse_x * state.draw_time_width) / timeline_view_width;
+   double mouse_time = state.draw_start_time + ((ctx->mouse_x - area.x) * state.draw_time_width) / area.w;
 
    {
       double zoom_factor = (ctx->zoom > 0 ? (1.0 / 1.1) : 1.1);
@@ -83,7 +78,7 @@ void tch_update(Context *ctx, cairo_t *cr) {
          state.draw_time_width *= zoom_factor;
       }
       ctx->zoom = 0;
-      state.draw_start_time = (int64_t) (mouse_time - (ctx->mouse_x * state.draw_time_width) / timeline_view_width);
+      state.draw_start_time = (int64_t) (mouse_time - ((ctx->mouse_x - area.x) * state.draw_time_width) / area.w);
    }
 
    if (state.draw_start_time < timeline->start_time) {
@@ -100,18 +95,7 @@ void tch_update(Context *ctx, cairo_t *cr) {
 
    double draw_end_time = state.draw_start_time + state.draw_time_width;
 
-   cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
-   cairo_paint(cr);
-
-   cairo_select_font_face(cr, "Source Code Pro", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
-   cairo_set_font_size(cr, 10);
-
-   cairo_font_extents_t font_extents;
-   cairo_font_extents(cr, &font_extents);
-
-   cairo_set_line_width(cr, 1.0);
-
-   double width_scale = timeline_view_width / state.draw_time_width;
+   double width_scale = area.w / state.draw_time_width;
 
    for (TimelineChunk *chunk = timeline->first; chunk; chunk = chunk->next) {
       for (int index = 0; index < chunk->entry_count; index++) {
@@ -123,15 +107,15 @@ void tch_update(Context *ctx, cairo_t *cr) {
          double x1 = (entry->end_time - state.draw_start_time) * width_scale;
 
          if (x0 < 0.0) x0 = 0.0;
-         if (x1 > timeline_view_width) x1 = timeline_view_width;
+         if (x1 > area.w) x1 = area.w;
 
          double w = x1 - x0;
 
-         x0 += timeline_view_x;
-         x1 += timeline_view_x;
+         x0 += area.x;
+         x1 += area.x;
 
          if (w >= 0.1) {
-            double y0 = entry->depth * 15 - state.draw_y;
+            double y0 = blocks_y + entry->depth * 15 - state.draw_y;
 
             if (ctx->mouse_x >= x0 && ctx->mouse_x <= x1 && ctx->mouse_y >= y0 && ctx->mouse_y < y0 + 15) {
                state.highlighted_entry = entry;
@@ -194,6 +178,58 @@ void tch_update(Context *ctx, cairo_t *cr) {
       }
    }
 
+   if (state.highlighted_entry && ctx->click_went_up && (abs(ctx->click_mouse_x - ctx->mouse_x) <= 2)) {
+      state.active_entry = state.highlighted_entry;
+      if (ctx->double_click) {
+         state.draw_start_time = state.active_entry->start_time;
+         state.draw_time_width = state.active_entry->end_time - state.active_entry->start_time;
+      }
+   }
+
+   if (state.active_entry) {
+      snprintf(buffer, array_size(buffer), "%.*s - events: %i - %.*s:%i", str_prt(state.active_entry->name), state.active_entry->events, str_prt(state.active_entry->path), state.active_entry->line_no);
+      cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+      cairo_move_to(cr, area.x + 2, ctx->height - 2 - font_extents.descent);
+      cairo_show_text(cr, buffer);
+   }
+}
+
+void update(Context *ctx, cairo_t *cr) {
+   Timeline* timeline = &state.timeline;
+   int timeline_view_x = 0;
+   int timeline_view_width = ctx->width;
+
+   if (str_nonblank(state.watch_path)) {
+      state.watch_panel_open = true;
+      state.watch_panel_width = 200;
+      timeline_view_x = (int)state.watch_panel_width;
+      timeline_view_width -= state.watch_panel_width;
+
+      if (state.last_file_check <= 0.0 || state.last_file_check < ctx->proc_time - 3.0) {
+         state.last_file_check = ctx->proc_time;
+
+         printf("Scanning directory\n");
+         file_list_free(&state.profile_file_list);
+         file_list_init(&state.profile_file_list);
+         file_read_directory(&state.profile_file_list, state.watch_path);
+      }
+   } else {
+      state.watch_panel_open = false;
+   }
+
+   cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
+   cairo_paint(cr);
+
+   cairo_select_font_face(cr, "Source Code Pro", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
+   cairo_set_font_size(cr, 10);
+
+   cairo_font_extents_t font_extents;
+   cairo_font_extents(cr, &font_extents);
+
+   cairo_set_line_width(cr, 1.0);
+
+   timeline_update(ctx, cr, timeline, Rect(timeline_view_x, 0, timeline_view_width, ctx->height));
+
    if (state.watch_panel_open) {
       cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
       cairo_rectangle(cr, 0, 0, state.watch_panel_width, ctx->height);
@@ -219,21 +255,6 @@ void tch_update(Context *ctx, cairo_t *cr) {
       cairo_line_to(cr, state.watch_panel_width, ctx->height);
       cairo_stroke(cr);
       cairo_reset_clip(cr);
-   }
-
-   if (state.highlighted_entry && ctx->click_went_up && (abs(ctx->click_mouse_x - ctx->mouse_x) <= 2)) {
-      state.active_entry = state.highlighted_entry;
-      if (ctx->double_click) {
-         state.draw_start_time = state.active_entry->start_time;
-         state.draw_time_width = state.active_entry->end_time - state.active_entry->start_time;
-      }
-   }
-
-   if (state.active_entry) {
-      snprintf(buffer, array_size(buffer), "%.*s - events: %i - %.*s:%i", str_prt(state.active_entry->name), state.active_entry->events, str_prt(state.active_entry->path), state.active_entry->line_no);
-      cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
-      cairo_move_to(cr, 2, ctx->height - 2 - font_extents.descent);
-      cairo_show_text(cr, buffer);
    }
 }
 
@@ -263,6 +284,6 @@ int main(int argc, char **args) {
       return 2;
    }
 
-   ui_run(tch_update);
+   ui_run(update);
    return 0;
 }
