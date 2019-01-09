@@ -27,15 +27,17 @@ struct {
    double draw_time_width;
 
    Timeline timeline;
+   TimelineThread* thread;
+
    TimelineEntry *highlighted_entry;
    TimelineEntry *active_entry;
 
-   String  watch_path;
+   String watch_path;
    int64_t watch_panel_width;
-   bool    watch_panel_open;
+   bool watch_panel_open;
 } state = {};
 
-void timeline_update(Context *ctx, cairo_t *cr, Timeline* timeline, irect area) {
+void timeline_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect area) {
    char buffer[4096];
 
    int header_height = 20;
@@ -65,8 +67,9 @@ void timeline_update(Context *ctx, cairo_t *cr, Timeline* timeline, irect area) 
    }
 
    if (ctx->click) {
-      state.draw_start_time = (int64_t)(state.click_draw_start_time + ((ctx->click_mouse_x - ctx->mouse_x) * state.draw_time_width) / area.w);
-      state.draw_y = (int64_t)(state.click_draw_y + (ctx->click_mouse_y - ctx->mouse_y));
+      state.draw_start_time = (int64_t) (state.click_draw_start_time +
+                                         ((ctx->click_mouse_x - ctx->mouse_x) * state.draw_time_width) / area.w);
+      state.draw_y = (int64_t) (state.click_draw_y + (ctx->click_mouse_y - ctx->mouse_y));
    }
 
    double mouse_time = state.draw_start_time + ((ctx->mouse_x - area.x) * state.draw_time_width) / area.w;
@@ -97,7 +100,9 @@ void timeline_update(Context *ctx, cairo_t *cr, Timeline* timeline, irect area) 
 
    double width_scale = area.w / state.draw_time_width;
 
-   for (TimelineChunk *chunk = timeline->first; chunk; chunk = chunk->next) {
+   TimelineThread *thread = state.thread;
+
+   for (TimelineChunk *chunk = thread->first; chunk; chunk = chunk->next) {
       for (int index = 0; index < chunk->entry_count; index++) {
          TimelineEntry *entry = chunk->entries + index;
 
@@ -121,19 +126,24 @@ void timeline_update(Context *ctx, cairo_t *cr, Timeline* timeline, irect area) 
                state.highlighted_entry = entry;
             }
 
+            double r, g, b;
+            r = 0.33;
+            g = 0.67;
+            b = 1.00;
+
             if (w >= 20.0) {
-               double b = 0.6;
+               double l = 0.6;
                if (entry == state.active_entry) {
-                  b = 1.0;
+                  l = 1.0;
                } else if (entry == state.highlighted_entry) {
-                  b = 0.8;
+                  l = 0.8;
                }
 
-               cairo_set_source_rgb(cr, 0.17 * b, 0.33 * b, 0.5 * b);
+               cairo_set_source_rgb(cr, r * l * 0.5, g * l * 0.5, b * l * 0.5);
                cairo_rectangle(cr, x0, y0, w, 14);
                cairo_fill_preserve(cr);
 
-               cairo_set_source_rgb(cr, 0.33 * b, 0.66 * b, 1.0 * b);
+               cairo_set_source_rgb(cr, r * l, g * l, b * l);
                cairo_stroke(cr);
 
                double text_x = x0 + 2, text_w = w - 4;
@@ -170,7 +180,7 @@ void timeline_update(Context *ctx, cairo_t *cr, Timeline* timeline, irect area) 
 
                cairo_reset_clip(cr);
             } else {
-               cairo_set_source_rgb(cr, 0.1, 0.2, 0.3);
+               cairo_set_source_rgb(cr, r * 0.3, g * 0.3, b * 0.3);
                cairo_rectangle(cr, x0, y0, w, 15);
                cairo_fill(cr);
             }
@@ -187,7 +197,8 @@ void timeline_update(Context *ctx, cairo_t *cr, Timeline* timeline, irect area) 
    }
 
    if (state.active_entry) {
-      snprintf(buffer, array_size(buffer), "%.*s - events: %i - %.*s:%i", str_prt(state.active_entry->name), state.active_entry->events, str_prt(state.active_entry->path), state.active_entry->line_no);
+      snprintf(buffer, array_size(buffer), "%.*s - events: %i - %.*s:%i", str_prt(state.active_entry->name),
+               state.active_entry->events, str_prt(state.active_entry->path), state.active_entry->line_no);
       cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
       cairo_move_to(cr, area.x + 2, ctx->height - 2 - font_extents.descent);
       cairo_show_text(cr, buffer);
@@ -195,14 +206,28 @@ void timeline_update(Context *ctx, cairo_t *cr, Timeline* timeline, irect area) 
 }
 
 void update(Context *ctx, cairo_t *cr) {
-   Timeline* timeline = &state.timeline;
+   Timeline *timeline = &state.timeline;
+
+   if (!state.thread) {
+      uint64_t highest_events = 0;
+
+      for (int thread_index = 0; thread_index < timeline->thread_count; thread_index++) {
+         TimelineThread *thread = timeline->threads + thread_index;
+         printf("Thread %i: [%u, %u] %li events\n", thread_index, thread->thread_id, thread->fiber_id, thread->events);
+         if (thread->events >= highest_events) {
+            state.thread = thread;
+            highest_events = thread->events;
+         }
+      }
+   }
+
    int timeline_view_x = 0;
    int timeline_view_width = ctx->width;
 
    if (str_nonblank(state.watch_path)) {
       state.watch_panel_open = true;
       state.watch_panel_width = 200;
-      timeline_view_x = (int)state.watch_panel_width;
+      timeline_view_x = (int) state.watch_panel_width;
       timeline_view_width -= state.watch_panel_width;
 
       if (state.last_file_check <= 0.0 || state.last_file_check < ctx->proc_time - 3.0) {
@@ -275,6 +300,7 @@ int main(int argc, char **args) {
          printf("Could not read file %s\n", args[1]);
          return 2;
       }
+
    } else if (arg_file.type == FILE_TYPE_DIRECTORY) {
       tm_init(timeline);
       printf("Watching directory: %s\n", args[1]);

@@ -34,4 +34,4 @@ struct Context {
    MemoryArena temp;
 };
 
-void ui_run(void (*update)(Context*, cairo_t*));
+void ui_run(void (*update)(Context *, cairo_t *));

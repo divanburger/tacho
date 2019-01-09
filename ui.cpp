@@ -4,7 +4,7 @@
 
 #include "ui.h"
 
-void ui_run(void (*update)(Context*, cairo_t*)) {
+void ui_run(void (*update)(Context *, cairo_t *)) {
    if (SDL_Init(SDL_INIT_VIDEO) == 0) {
       SDL_Window *window = nullptr;
       SDL_Renderer *renderer = nullptr;
@@ -22,7 +22,7 @@ void ui_run(void (*update)(Context*, cairo_t*)) {
 
          while (ctx.running) {
             auto now = SDL_GetPerformanceCounter();
-            ctx.real_delta = (double)(now - ctx.time_counter) / SDL_GetPerformanceFrequency();
+            ctx.real_delta = (double) (now - ctx.time_counter) / SDL_GetPerformanceFrequency();
             if (ctx.real_delta > 1.0) ctx.real_delta = 1.0;
 
             ctx.time_counter = now;

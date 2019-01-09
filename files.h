@@ -19,24 +19,24 @@ struct File {
 };
 
 struct DirectoryBlock {
-   int  count;
+   int count;
    File files[64];
 
-   DirectoryBlock* prev;
-   DirectoryBlock* next;
+   DirectoryBlock *prev;
+   DirectoryBlock *next;
 };
 
 struct DirectoryList {
-   DirectoryBlock* first;
-   DirectoryBlock* last;
+   DirectoryBlock *first;
+   DirectoryBlock *last;
    MemoryArena arena;
 };
 
 File file_stat(String name);
 
-void file_list_init(DirectoryList* list);
-void file_list_free(DirectoryList* list);
+void file_list_init(DirectoryList *list);
+void file_list_free(DirectoryList *list);
 
-File* file_list_add(DirectoryList* list, FileType type, String name);
+File *file_list_add(DirectoryList *list, FileType type, String name);
 
-void file_read_directory(DirectoryList* list, String path);
+void file_read_directory(DirectoryList *list, String path);
