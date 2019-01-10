@@ -23,3 +23,8 @@ String as_string(char *str) {
    return String{(int) strlen(str), str};
 }
 
+bool str_equal(String a, String b) {
+   if (a.length != b.length) return false;
+   return (strncmp(a.data, b.data, (size_t)a.length) == 0);
+}
+

@@ -8,54 +8,78 @@
 #include "memory.h"
 #include "string.h"
 
-struct TimelineEntry {
-   int64_t start_time;
-   int64_t end_time;
+struct TimelineMethod {
+   uint64_t hash;
 
-   uint32_t thread_index;
-   uint32_t method_id;
-
-   uint64_t events;
-   int depth;
    int line_no;
    String name;
    String path;
+
+   uint64_t calls;
+   uint64_t total_time;
+   uint64_t child_time;
 };
 
-struct TimelineChunk {
+struct TimelineEvent {
    int64_t start_time;
    int64_t end_time;
 
-   TimelineChunk *prev;
-   TimelineChunk *next;
+   TimelineEvent* parent;
+   TimelineMethod* method;
+
+   int32_t thread_index;
+   uint32_t method_id;
+   int32_t depth;
+
+   uint64_t events;
+};
+
+struct TimelineEventChunk {
+   int64_t start_time;
+   int64_t end_time;
+
+   TimelineEventChunk *prev;
+   TimelineEventChunk *next;
 
    int entry_count;
    int entry_capacity;
-   TimelineEntry *entries;
+   TimelineEvent *entries;
 };
 
 struct TimelineThread {
-   uint32_t index;
+   int32_t index;
    uint32_t thread_id;
    uint32_t fiber_id;
 
    uint64_t events;
 
-   TimelineChunk *first;
-   TimelineChunk *last;
+   TimelineEventChunk *first;
+   TimelineEventChunk *last;
 
    MemoryArena *arena;
 };
 
+struct TimelineMethodTable {
+   int32_t capacity;
+   int32_t count;
+
+   uint64_t* hashes;
+   TimelineMethod** methods;
+
+   MemoryArena arena;
+};
+
 struct Timeline {
-   uint32_t thread_count;
+   int32_t thread_count;
    TimelineThread threads[64];
 
-   int64_t start_time;
-   int64_t end_time;
+   uint64_t start_time;
+   uint64_t end_time;
 
    String name;
    MemoryArena arena;
+
+   TimelineMethodTable method_table;
 };
 
 struct CallBody {
@@ -75,15 +99,20 @@ struct ThreadSwitch {
 struct ThreadInfo {
    uint64_t last_time;
    int32_t stack_index;
-   TimelineEntry *stack[1024];
+   TimelineEvent *stack[1024];
 };
 
 bool tm_read_file(Timeline *timeline, const char *filename);
+void tm_end_event(TimelineEvent* event, ThreadInfo* info, uint64_t time);
 
 void tm_init(Timeline *timeline);
 
-bool tm_output_html(Timeline *timeline, const char *output_filename);
-
 TimelineThread *tm_find_or_create_thread(Timeline *timeline, uint32_t thread_id, uint32_t fiber_id);
 
-TimelineEntry *tm_add(TimelineThread *thread, int depth, const char *name, const char *path, int line_no);
+TimelineEvent *tm_create_event(TimelineThread *thread);
+
+TimelineMethod* tm_find_or_create_method(Timeline* timeline, String name, String path, int line_no);
+
+void tm_grow_method_table(TimelineMethodTable* method_table);
+
+uint64_t tm_hash_call(TimelineEvent* call_entry);

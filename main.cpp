@@ -29,8 +29,8 @@ struct {
    Timeline timeline;
    TimelineThread* thread;
 
-   TimelineEntry *highlighted_entry;
-   TimelineEntry *active_entry;
+   TimelineEvent *highlighted_entry;
+   TimelineEvent *active_entry;
 
    String watch_path;
    int64_t watch_panel_width;
@@ -105,9 +105,9 @@ void timeline_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect area) 
 
    TimelineThread *thread = state.thread;
 
-   for (TimelineChunk *chunk = thread->first; chunk; chunk = chunk->next) {
+   for (TimelineEventChunk *chunk = thread->first; chunk; chunk = chunk->next) {
       for (int index = 0; index < chunk->entry_count; index++) {
-         TimelineEntry *entry = chunk->entries + index;
+         TimelineEvent *entry = chunk->entries + index;
 
          if (entry->end_time < state.draw_start_time || entry->start_time > draw_end_time) continue;
 
@@ -159,12 +159,14 @@ void timeline_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect area) 
                cairo_rectangle(cr, text_x, y0, text_w, 15);
                cairo_clip(cr);
 
+               TimelineMethod* method = entry->method;
+
                cairo_text_extents_t extents;
-               cairo_text_extents(cr, entry->name.data, &extents);
+               cairo_text_extents(cr, method->name.data, &extents);
 
                cairo_set_source_rgb(cr, 0.9, 0.9, 0.9);
                cairo_move_to(cr, text_x, y0 + font_extents.ascent);
-               cairo_show_text(cr, entry->name.data);
+               cairo_show_text(cr, method->name.data);
 
                text_x += extents.x_advance + 4.0;
 
@@ -201,8 +203,10 @@ void timeline_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect area) 
    }
 
    if (state.active_entry) {
-      snprintf(buffer, array_size(buffer), "%.*s - events: %i - %.*s:%i", str_prt(state.active_entry->name),
-               state.active_entry->events, str_prt(state.active_entry->path), state.active_entry->line_no);
+      TimelineMethod* method = state.active_entry->method;
+
+      snprintf(buffer, array_size(buffer), "%.*s - events: %i - %.*s:%i", str_prt(method->name),
+               state.active_entry->events, str_prt(method->path), method->line_no);
       cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
       cairo_move_to(cr, area.x + 2, ctx->height - 2 - font_extents.descent);
       cairo_show_text(cr, buffer);

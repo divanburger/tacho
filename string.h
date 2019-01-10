@@ -17,6 +17,8 @@ inline bool str_nonblank(String str) {return str.length > 0 && str.data;}
 String str_copy(MemoryArena *arena, const char* str, int length);
 String str_copy(MemoryArena *arena, const char* str);
 
+bool str_equal(String a, String b);
+
 String as_string(char* str);
 
 #define str_prt(s) s.length, s.data

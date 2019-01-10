@@ -13,6 +13,8 @@ void tm_init(Timeline *timeline) {
 
    timeline->start_time = 0;
    timeline->end_time = 0;
+
+   tm_grow_method_table(&timeline->method_table);
 }
 
 TimelineThread *tm_find_or_create_thread(Timeline *timeline, uint32_t thread_id, uint32_t fiber_id) {
@@ -40,15 +42,15 @@ TimelineThread *tm_find_or_create_thread(Timeline *timeline, uint32_t thread_id,
 }
 
 
-TimelineEntry *
-tm_add(TimelineThread *thread, int depth, const char *name, const char *path, int line_no) {
-   TimelineChunk *chunk = thread->last;
+TimelineEvent *
+tm_create_event(TimelineThread *thread) {
+   TimelineEventChunk *chunk = thread->last;
 
    if (!chunk || chunk->entry_count == chunk->entry_capacity) {
-      TimelineChunk *new_chunk = raw_alloc_type_zero(TimelineChunk);
+      TimelineEventChunk *new_chunk = raw_alloc_type_zero(TimelineEventChunk);
 
       new_chunk->entry_capacity = 1024;
-      new_chunk->entries = raw_alloc_array(TimelineEntry, new_chunk->entry_capacity);
+      new_chunk->entries = raw_alloc_array(TimelineEvent, new_chunk->entry_capacity);
 
       new_chunk->prev = thread->last;
       new_chunk->next = nullptr;
@@ -68,14 +70,21 @@ tm_add(TimelineThread *thread, int depth, const char *name, const char *path, in
 
    thread->events++;
 
-   TimelineEntry *entry = chunk->entries + (chunk->entry_count++);
-   entry->thread_index = thread->index;
-   entry->events = 0;
-   entry->depth = depth;
-   entry->name = str_copy(thread->arena, name);
-   entry->path = str_copy(thread->arena, path);
-   entry->line_no = line_no;
-   return entry;
+   return chunk->entries + (chunk->entry_count++);
+}
+
+void tm_end_event(TimelineEvent *event, ThreadInfo *info, uint64_t time) {
+   event->end_time = time;
+
+   auto event_time = event->end_time - event->start_time;
+
+   auto method = event->method;
+   method->calls++;
+   method->total_time += event_time;
+
+   if (event->parent) {
+      event->parent->method->child_time += event_time;
+   }
 }
 
 bool tm_read_file(Timeline *timeline, const char *filename) {
@@ -121,9 +130,19 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
          if (!thread) thread = tm_find_or_create_thread(timeline, 0, 0);
          ThreadInfo *thread_info = thread_infos + thread->index;
 
-         auto entry = tm_add(thread, thread_info->stack_index, method_buffer, name_buffer, call_body.line_no);
+         String name = str_copy(thread->arena, method_buffer);
+         String path = str_copy(thread->arena, name_buffer);
+
+         auto method = tm_find_or_create_method(timeline, name, path, call_body.line_no);
+
+         auto entry = tm_create_event(thread);
+         entry->method = method;
+         entry->depth = thread_info->stack_index;
+         entry->thread_index = thread->index;
+         entry->events = 0;
          entry->start_time = time;
          entry->method_id = call_body.method_id;
+         entry->parent = thread_info->stack_index ? thread_info->stack[thread_info->stack_index - 1] : nullptr;
 
          for (int i = 0; i < thread_info->stack_index; i++) {
             thread_info->stack[i]->events++;
@@ -147,41 +166,33 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
             bool found = false;
             auto entry = thread_info->stack[stack_index];
             if (entry->method_id != method_id) {
-               printf("Method ID mismatch : %i != %i : %.*s\n", entry->method_id, method_id, str_prt(entry->name));
+               printf("Method ID mismatch : %i != %i : %.*s\n", entry->method_id, method_id,
+                      str_prt(entry->method->name));
             }
 
-            if (entry->method_id != method_id) {
-               auto test_entry = entry;
-               while (stack_index > 0) {
-                  if (test_entry->method_id == method_id) {
-                     found = true;
-                     break;
-                  }
-                  stack_index--;
-                  test_entry = thread_info->stack[stack_index];
+            auto test_entry = entry;
+            while (stack_index > 0) {
+               if (test_entry->method_id == method_id) {
+                  found = true;
+                  break;
                }
-
-               if (found) {
-                  thread_info->stack_index--;
-
-                  while (entry->method_id != method_id) {
-                     entry->end_time = thread_info->last_time;
-
-                     thread_info->stack_index--;
-                     entry = thread_info->stack[thread_info->stack_index];
-                     printf(" - Closed method %i : %.*s\n", entry->method_id, str_prt(entry->name));
-                  }
-               } else {
-                  printf("Correction failed - Could not find method\n");
-               }
-            } else {
-               thread_info->stack_index--;
-
-               found = true;
+               stack_index--;
+               test_entry = thread_info->stack[stack_index];
             }
 
             if (found) {
-               entry->end_time = time;
+               thread_info->stack_index--;
+
+               while (entry->method_id != method_id) {
+                  tm_end_event(entry, thread_info, thread_info->last_time);
+
+                  thread_info->stack_index--;
+                  entry = thread_info->stack[thread_info->stack_index];
+                  printf(" - Closed method %i : %.*s\n", entry->method_id, str_prt(entry->method->name));
+               }
+
+               tm_end_event(entry, thread_info, time);
+
                thread_info->last_time = time;
             }
          }
@@ -214,10 +225,81 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
       auto thread_info = thread_infos + thread_index;
 
       for (--thread_info->stack_index; thread_info->stack_index >= 0; --thread_info->stack_index) {
-         thread_info->stack[thread_info->stack_index]->end_time = timeline->end_time;
+         tm_end_event(thread_info->stack[thread_info->stack_index], thread_info, timeline->end_time);
       }
    }
 
    fclose(input);
+
+   printf("Method count: %i\n", timeline->method_table.count);
+   for (int i = 0; i < timeline->method_table.count; i++) {
+      auto method = timeline->method_table.methods[i];
+      printf("%6li %10lins %10lins %10lins %.*s\n", method->calls, method->total_time,
+             method->total_time - method->child_time, method->child_time, str_prt(method->name));
+   }
+
    return true;
+}
+
+uint64_t tm_hash_call(String name, String path, int line_no) {
+   uint64_t result = (uint64_t) line_no * name.length * path.length;
+   if (result == 0) result = 1; // Hash may not be zero
+   return result;
+}
+
+TimelineMethod *tm_find_or_create_method(Timeline *timeline, String name, String path, int line_no) {
+   TimelineMethod *result;
+
+   auto table = &timeline->method_table;
+
+   uint64_t hash = tm_hash_call(name, path, line_no);
+
+   for (int64_t i = 0; i < table->count; i++) {
+      if (table->hashes[i] == hash) {
+         result = table->methods[i];
+         if (result->line_no == line_no &&
+             str_equal(result->name, name) &&
+             str_equal(result->path, path)) {
+            return result;
+         }
+      }
+   }
+
+   if (table->count == table->capacity) {
+      tm_grow_method_table(table);
+   }
+   assert(table->count < table->capacity);
+
+   auto index = table->count++;
+   table->hashes[index] = hash;
+
+   result = alloc_type(&timeline->arena, TimelineMethod);
+   table->methods[index] = result;
+
+   result->hash = hash;
+   result->line_no = line_no;
+   result->name = name;
+   result->path = path;
+   return result;
+}
+
+void tm_grow_method_table(TimelineMethodTable *method_table) {
+   if (method_table->hashes) free(method_table->hashes);
+
+   auto old_methods = method_table->methods;
+
+   method_table->capacity = method_table->capacity * 2;
+   if (method_table->capacity < 64) method_table->capacity = 64;
+
+   method_table->hashes = raw_alloc_array_zero(uint64_t, method_table->capacity);
+   method_table->methods = raw_alloc_array_zero(TimelineMethod*, method_table->capacity);
+
+   if (old_methods) {
+      for (int64_t i = 0; i < method_table->count; i++) {
+         TimelineMethod *method = old_methods[i];
+         method_table->hashes[i] = method->hash;
+         method_table->methods[i] = method;
+      }
+      free(old_methods);
+   }
 }

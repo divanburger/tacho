@@ -11,6 +11,7 @@
 #define raw_alloc_type(type) ((type *) malloc(sizeof(type)))
 #define raw_alloc_type_zero(type) ((type *) calloc(1, sizeof(type)))
 #define raw_alloc_array(type, size) ((type *) malloc(sizeof(type) * size))
+#define raw_alloc_array_zero(type, size) ((type *) calloc(1, sizeof(type) * size))
 #define raw_alloc_string(size) ((char *) malloc(sizeof(char)*size))
 #define raw_alloc_string_zt(size) ((char *) calloc(1, sizeof(char)*(size+1)))
 #define raw_free(ptr) free(ptr)
