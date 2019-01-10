@@ -37,26 +37,13 @@ struct {
    bool watch_panel_open;
 } state = {};
 
-void timeline_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect area) {
+void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect area) {
    char buffer[4096];
-
-   int header_height = 20;
-   int blocks_y = area.y + header_height;
-
-   cairo_set_font_size(cr, 10);
 
    cairo_font_extents_t font_extents;
    cairo_font_extents(cr, &font_extents);
 
-   cairo_set_source_rgb(cr, 0.3, 0.3, 0.3);
-   cairo_rectangle(cr, area.x, area.y, area.w, header_height);
-   cairo_fill(cr);
-
-   cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
-   cairo_move_to(cr, area.x + 4, area.y + (header_height - font_extents.height) * 0.5 + font_extents.ascent);
-   cairo_show_text(cr, timeline->name.data);
-
-   cairo_rectangle(cr, area.x, area.y + header_height, area.w, area.h - header_height);
+   cairo_rectangle(cr, area.x, area.y, area.w, area.h);
    cairo_clip(cr);
 
    if (state.draw_time_width == 0) {
@@ -123,7 +110,7 @@ void timeline_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect area) 
          x1 += area.x;
 
          if (w >= 0.1) {
-            double y0 = blocks_y + entry->depth * 15 - state.draw_y;
+            double y0 = area.y + entry->depth * 15 - state.draw_y;
 
             if (ctx->mouse_x >= x0 && ctx->mouse_x <= x1 && ctx->mouse_y >= y0 && ctx->mouse_y < y0 + 15) {
                state.highlighted_entry = entry;
@@ -201,6 +188,75 @@ void timeline_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect area) 
          state.draw_time_width = state.active_entry->end_time - state.active_entry->start_time;
       }
    }
+
+   cairo_reset_clip(cr);
+}
+
+void timeline_methods_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect area) {
+   cairo_rectangle(cr, area.x, area.y, area.w, area.h);
+   cairo_clip(cr);
+
+   int64_t method_height = 30;
+
+   int64_t y = area.y;
+
+   cairo_font_extents_t font_extents;
+   cairo_font_extents(cr, &font_extents);
+
+   for (int64_t i = 0; i < timeline->method_table.count; i++) {
+      auto method = timeline->method_table.methods[i];
+
+      double self_time_fraction = (double)(method->total_time - method->child_time) / timeline->highest_method_total_time;
+      double total_time_fraction = (double)method->total_time / timeline->highest_method_total_time;
+
+      cairo_set_source_rgb(cr, 0.2, 0.3, 0.4);
+      cairo_rectangle(cr, area.x, y, area.w * self_time_fraction, method_height);
+      cairo_fill(cr);
+
+      cairo_set_source_rgb(cr, 0.1, 0.2, 0.3);
+      cairo_rectangle(cr, area.x + area.w * self_time_fraction, y, area.w * total_time_fraction, method_height);
+      cairo_fill(cr);
+
+      cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+      cairo_move_to(cr, area.x + 4, y + (method_height * 0.5 - font_extents.height) * 0.5 + font_extents.ascent);
+      cairo_show_text(cr, method->name.data);
+
+      y += method_height;
+   }
+
+   cairo_reset_clip(cr);
+}
+
+void timeline_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect area) {
+   char buffer[4096];
+
+   int method_panel_width = 300;
+
+   int header_height = 20;
+   int blocks_y = area.y + header_height;
+
+   cairo_set_font_size(cr, 10);
+
+   cairo_font_extents_t font_extents;
+   cairo_font_extents(cr, &font_extents);
+
+   cairo_set_source_rgb(cr, 0.3, 0.3, 0.3);
+   cairo_rectangle(cr, area.x, area.y, area.w, header_height);
+   cairo_fill(cr);
+
+   cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+   cairo_move_to(cr, area.x + 4, area.y + (header_height - font_extents.height) * 0.5 + font_extents.ascent);
+   cairo_show_text(cr, timeline->name.data);
+
+   timeline_chart_update(ctx, cr, timeline, Rect(area.x, area.y + header_height, area.w - method_panel_width, area.h - header_height));
+
+   int methods_x = area.x + area.w - method_panel_width;
+   timeline_methods_update(ctx, cr, timeline, Rect(methods_x, area.y + header_height, method_panel_width, area.h - header_height));
+
+   cairo_set_source_rgb(cr, 0.5, 0.5, 0.5);
+   cairo_move_to(cr, methods_x - 0.5, area.y + header_height);
+   cairo_line_to(cr, methods_x - 0.5, area.y + area.h);
+   cairo_stroke(cr);
 
    if (state.active_entry) {
       TimelineMethod* method = state.active_entry->method;

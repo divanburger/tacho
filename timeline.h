@@ -79,6 +79,8 @@ struct Timeline {
    String name;
    MemoryArena arena;
 
+   uint64_t highest_method_total_time;
+
    TimelineMethodTable method_table;
 };
 

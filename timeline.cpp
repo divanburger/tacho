@@ -14,6 +14,8 @@ void tm_init(Timeline *timeline) {
    timeline->start_time = 0;
    timeline->end_time = 0;
 
+   timeline->highest_method_total_time = 0;
+
    tm_grow_method_table(&timeline->method_table);
 }
 
@@ -231,6 +233,14 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
 
    fclose(input);
 
+   for (int i = 0; i < timeline->method_table.count; i++) {
+      auto method = timeline->method_table.methods[i];
+      if (method->total_time > timeline->highest_method_total_time) {
+         timeline->highest_method_total_time = method->total_time;
+      }
+   }
+
+   printf("Longest method: %lins\n", timeline->highest_method_total_time);
    printf("Method count: %i\n", timeline->method_table.count);
    for (int i = 0; i < timeline->method_table.count; i++) {
       auto method = timeline->method_table.methods[i];
