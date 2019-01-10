@@ -119,7 +119,7 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
          name_buffer[call_body.filename_offset + call_body.filename_length] = 0;
 
          if (!thread) thread = tm_find_or_create_thread(timeline, 0, 0);
-         ThreadInfo* thread_info = thread_infos + thread->index;
+         ThreadInfo *thread_info = thread_infos + thread->index;
 
          auto entry = tm_add(thread, thread_info->stack_index, method_buffer, name_buffer, call_body.line_no);
          entry->start_time = time;
@@ -137,28 +137,53 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
          fread(&method_id, sizeof(uint32_t), 1, input);
 
          if (!thread) thread = tm_find_or_create_thread(timeline, 0, 0);
-         ThreadInfo* thread_info = thread_infos + thread->index;
+         ThreadInfo *thread_info = thread_infos + thread->index;
 
-         if (thread_info->stack_index > 0) {
-            thread_info->stack_index--;
+         int stack_index = thread_info->stack_index;
 
-            auto entry = thread_info->stack[thread_info->stack_index];
-            while (entry->method_id != method_id) {
-               printf("method id mismatch correction: %i != %i : %.*s\n", entry->method_id, method_id, str_prt(entry->name));
+         if (stack_index > 0) {
+            stack_index--;
 
-               entry->end_time = thread_info->last_time;
+            bool found = false;
+            auto entry = thread_info->stack[stack_index];
+            if (entry->method_id != method_id) {
+               printf("Method ID mismatch : %i != %i : %.*s\n", entry->method_id, method_id, str_prt(entry->name));
+            }
 
+            if (entry->method_id != method_id) {
+               auto test_entry = entry;
+               while (stack_index > 0) {
+                  if (test_entry->method_id == method_id) {
+                     found = true;
+                     break;
+                  }
+                  stack_index--;
+                  test_entry = thread_info->stack[stack_index];
+               }
+
+               if (found) {
+                  thread_info->stack_index--;
+
+                  while (entry->method_id != method_id) {
+                     entry->end_time = thread_info->last_time;
+
+                     thread_info->stack_index--;
+                     entry = thread_info->stack[thread_info->stack_index];
+                     printf(" - Closed method %i : %.*s\n", entry->method_id, str_prt(entry->name));
+                  }
+               } else {
+                  printf("Correction failed - Could not find method\n");
+               }
+            } else {
                thread_info->stack_index--;
-               entry = thread_info->stack[thread_info->stack_index];
+
+               found = true;
             }
 
-            entry->end_time = time;
-
-            if (strcmp(entry->name.data, method_buffer) != 0) {
-               int a = 1;
+            if (found) {
+               entry->end_time = time;
+               thread_info->last_time = time;
             }
-
-            thread_info->last_time = time;
          }
       } else if (type == 'T') {
          ThreadSwitch thread_switch;

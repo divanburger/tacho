@@ -56,6 +56,9 @@ void timeline_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect area) 
    cairo_move_to(cr, area.x + 4, area.y + (header_height - font_extents.height) * 0.5 + font_extents.ascent);
    cairo_show_text(cr, timeline->name.data);
 
+   cairo_rectangle(cr, area.x, area.y + header_height, area.w, area.h - header_height);
+   cairo_clip(cr);
+
    if (state.draw_time_width == 0) {
       state.draw_start_time = timeline->start_time;
       state.draw_time_width = timeline->end_time - timeline->start_time;
@@ -152,6 +155,7 @@ void timeline_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect area) 
                   text_w = x1 - text_x - 4;
                }
 
+               cairo_save(cr);
                cairo_rectangle(cr, text_x, y0, text_w, 15);
                cairo_clip(cr);
 
@@ -178,7 +182,7 @@ void timeline_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect area) 
                cairo_move_to(cr, text_x, y0 + font_extents.ascent);
                cairo_show_text(cr, buffer);
 
-               cairo_reset_clip(cr);
+               cairo_restore(cr);
             } else {
                cairo_set_source_rgb(cr, r * 0.3, g * 0.3, b * 0.3);
                cairo_rectangle(cr, x0, y0, w, 15);
