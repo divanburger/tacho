@@ -15,9 +15,10 @@ struct TimelineMethod {
    String name;
    String path;
 
-   uint64_t calls;
-   uint64_t total_time;
-   uint64_t child_time;
+   int64_t calls;
+   int64_t total_time;
+   int64_t child_time;
+   int64_t self_time;
 };
 
 struct TimelineEvent {
@@ -51,7 +52,8 @@ struct TimelineThread {
    uint32_t thread_id;
    uint32_t fiber_id;
 
-   uint64_t events;
+   int32_t deepest_level;
+   int64_t events;
 
    TimelineEventChunk *first;
    TimelineEventChunk *last;
@@ -73,8 +75,8 @@ struct Timeline {
    int32_t thread_count;
    TimelineThread threads[64];
 
-   uint64_t start_time;
-   uint64_t end_time;
+   int64_t start_time;
+   int64_t end_time;
 
    String name;
    MemoryArena arena;
@@ -99,7 +101,7 @@ struct ThreadSwitch {
 };
 
 struct ThreadInfo {
-   uint64_t last_time;
+   int64_t last_time;
    int32_t stack_index;
    TimelineEvent *stack[1024];
 };

@@ -18,3 +18,7 @@ inline irect Rect(int x, int y, int w, int h) {
     result.h = h;
     return result;
 }
+
+bool inside(irect r, int x, int y) {
+   return (r.x <= x && r.x + r.w >= x && r.y <= y && r.y + r.h >= y);
+}

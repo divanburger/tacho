@@ -146,6 +146,10 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
          entry->method_id = call_body.method_id;
          entry->parent = thread_info->stack_index ? thread_info->stack[thread_info->stack_index - 1] : nullptr;
 
+         if (entry->depth > thread->deepest_level) {
+            thread->deepest_level = entry->depth;
+         }
+
          for (int i = 0; i < thread_info->stack_index; i++) {
             thread_info->stack[i]->events++;
          }
@@ -235,17 +239,30 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
 
    for (int i = 0; i < timeline->method_table.count; i++) {
       auto method = timeline->method_table.methods[i];
+      method->self_time = method->total_time - method->child_time;
+
       if (method->total_time > timeline->highest_method_total_time) {
          timeline->highest_method_total_time = method->total_time;
       }
    }
 
+   qsort(timeline->method_table.methods, (size_t)timeline->method_table.count, sizeof(TimelineMethod*), [](const void* a_ptr, const void * b_ptr) -> int {
+      auto a = *(TimelineMethod**)a_ptr;
+      auto b = *(TimelineMethod**)b_ptr;
+      if (a->total_time < b->total_time) {
+         return 1;
+      } else if (a->total_time > b->total_time) {
+         return - 1;
+      }
+      return 0;
+   });
+
    printf("Longest method: %lins\n", timeline->highest_method_total_time);
    printf("Method count: %i\n", timeline->method_table.count);
    for (int i = 0; i < timeline->method_table.count; i++) {
       auto method = timeline->method_table.methods[i];
-      printf("%6li %10lins %10lins %10lins %.*s\n", method->calls, method->total_time,
-             method->total_time - method->child_time, method->child_time, str_prt(method->name));
+      printf("%6li %10lins %10lins %10lins %.*s\n",
+            method->calls, method->total_time, method->self_time, method->child_time, str_prt(method->name));
    }
 
    return true;

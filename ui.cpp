@@ -28,6 +28,7 @@ void ui_run(void (*update)(Context *, cairo_t *)) {
             ctx.time_counter = now;
             ctx.proc_time += ctx.real_delta;
 
+            ctx.zoom = 0;
             ctx.click_went_down = false;
             ctx.click_went_up = false;
             ctx.double_click = false;
