@@ -14,6 +14,10 @@ struct TimelineMethod {
    int line_no;
    String name;
    String path;
+};
+
+struct TimelineMethodStatistics {
+   TimelineMethod *method;
 
    int64_t calls;
    int64_t total_time;
@@ -25,8 +29,8 @@ struct TimelineEvent {
    int64_t start_time;
    int64_t end_time;
 
-   TimelineEvent* parent;
-   TimelineMethod* method;
+   TimelineEvent *parent;
+   TimelineMethod *method;
 
    int32_t thread_index;
    uint32_t method_id;
@@ -65,8 +69,8 @@ struct TimelineMethodTable {
    int32_t capacity;
    int32_t count;
 
-   uint64_t* hashes;
-   TimelineMethod** methods;
+   uint64_t *hashes;
+   TimelineMethod **methods;
 
    MemoryArena arena;
 };
@@ -107,7 +111,7 @@ struct ThreadInfo {
 };
 
 bool tm_read_file(Timeline *timeline, const char *filename);
-void tm_end_event(TimelineEvent* event, ThreadInfo* info, uint64_t time);
+void tm_end_event(TimelineEvent *event, ThreadInfo *info, uint64_t time);
 
 void tm_init(Timeline *timeline);
 
@@ -115,8 +119,8 @@ TimelineThread *tm_find_or_create_thread(Timeline *timeline, uint32_t thread_id,
 
 TimelineEvent *tm_create_event(TimelineThread *thread);
 
-TimelineMethod* tm_find_or_create_method(Timeline* timeline, String name, String path, int line_no);
+TimelineMethod *tm_find_or_create_method(Timeline *timeline, String name, String path, int line_no);
 
-void tm_grow_method_table(TimelineMethodTable* method_table);
+void tm_grow_method_table(TimelineMethodTable *method_table);
 
-uint64_t tm_hash_call(TimelineEvent* call_entry);
+uint64_t tm_hash_call(TimelineEvent *call_entry);

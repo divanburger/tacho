@@ -78,15 +78,15 @@ tm_create_event(TimelineThread *thread) {
 void tm_end_event(TimelineEvent *event, ThreadInfo *info, uint64_t time) {
    event->end_time = time;
 
-   auto event_time = event->end_time - event->start_time;
+//   auto event_time = event->end_time - event->start_time;
 
-   auto method = event->method;
-   method->calls++;
-   method->total_time += event_time;
-
-   if (event->parent) {
-      event->parent->method->child_time += event_time;
-   }
+//   auto method = event->method;
+//   method->calls++;
+//   method->total_time += event_time;
+//
+//   if (event->parent) {
+//      event->parent->method->child_time += event_time;
+//   }
 }
 
 bool tm_read_file(Timeline *timeline, const char *filename) {
@@ -237,33 +237,33 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
 
    fclose(input);
 
-   for (int i = 0; i < timeline->method_table.count; i++) {
-      auto method = timeline->method_table.methods[i];
-      method->self_time = method->total_time - method->child_time;
+//   for (int i = 0; i < timeline->method_table.count; i++) {
+//      auto method = timeline->method_table.methods[i];
+//      method->self_time = method->total_time - method->child_time;
+//
+//      if (method->total_time > timeline->highest_method_total_time) {
+//         timeline->highest_method_total_time = method->total_time;
+//      }
+//   }
+//
+//   qsort(timeline->method_table.methods, (size_t)timeline->method_table.count, sizeof(TimelineMethod*), [](const void* a_ptr, const void * b_ptr) -> int {
+//      auto a = *(TimelineMethod**)a_ptr;
+//      auto b = *(TimelineMethod**)b_ptr;
+//      if (a->total_time < b->total_time) {
+//         return 1;
+//      } else if (a->total_time > b->total_time) {
+//         return - 1;
+//      }
+//      return 0;
+//   });
 
-      if (method->total_time > timeline->highest_method_total_time) {
-         timeline->highest_method_total_time = method->total_time;
-      }
-   }
-
-   qsort(timeline->method_table.methods, (size_t)timeline->method_table.count, sizeof(TimelineMethod*), [](const void* a_ptr, const void * b_ptr) -> int {
-      auto a = *(TimelineMethod**)a_ptr;
-      auto b = *(TimelineMethod**)b_ptr;
-      if (a->total_time < b->total_time) {
-         return 1;
-      } else if (a->total_time > b->total_time) {
-         return - 1;
-      }
-      return 0;
-   });
-
-   printf("Longest method: %lins\n", timeline->highest_method_total_time);
-   printf("Method count: %i\n", timeline->method_table.count);
-   for (int i = 0; i < timeline->method_table.count; i++) {
-      auto method = timeline->method_table.methods[i];
-      printf("%6li %10lins %10lins %10lins %.*s\n",
-            method->calls, method->total_time, method->self_time, method->child_time, str_prt(method->name));
-   }
+//   printf("Longest method: %lins\n", timeline->highest_method_total_time);
+//   printf("Method count: %i\n", timeline->method_table.count);
+//   for (int i = 0; i < timeline->method_table.count; i++) {
+//      auto method = timeline->method_table.methods[i];
+//      printf("%6li %10lins %10lins %10lins %.*s\n",
+//            method->calls, method->total_time, method->self_time, method->child_time, str_prt(method->name));
+//   }
 
    return true;
 }
