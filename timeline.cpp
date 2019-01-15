@@ -48,11 +48,8 @@ TimelineEvent *
 tm_create_event(TimelineThread *thread) {
    TimelineEventChunk *chunk = thread->last;
 
-   if (!chunk || chunk->entry_count == chunk->entry_capacity) {
+   if (!chunk || chunk->entry_count == array_size(chunk->entries)) {
       TimelineEventChunk *new_chunk = raw_alloc_type_zero(TimelineEventChunk);
-
-      new_chunk->entry_capacity = 1024;
-      new_chunk->entries = raw_alloc_array(TimelineEvent, new_chunk->entry_capacity);
 
       new_chunk->prev = thread->last;
       new_chunk->next = nullptr;
@@ -136,6 +133,7 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
          String path = str_copy(thread->arena, name_buffer);
 
          auto method = tm_find_or_create_method(timeline, name, path, call_body.line_no);
+         method->method_id = call_body.method_id;
 
          auto entry = tm_create_event(thread);
          entry->method = method;
@@ -143,8 +141,6 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
          entry->thread_index = thread->index;
          entry->events = 0;
          entry->start_time = time;
-         entry->method_id = call_body.method_id;
-         entry->parent = thread_info->stack_index ? thread_info->stack[thread_info->stack_index - 1] : nullptr;
 
          if (entry->depth > thread->deepest_level) {
             thread->deepest_level = entry->depth;
@@ -171,14 +167,15 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
 
             bool found = false;
             auto entry = thread_info->stack[stack_index];
-            if (entry->method_id != method_id) {
-               printf("Method ID mismatch : %i != %i : %.*s\n", entry->method_id, method_id,
+
+            if (entry->method->method_id != method_id) {
+               printf("Method ID mismatch : %i != %i : %.*s\n", entry->method->method_id, method_id,
                       str_prt(entry->method->name));
             }
 
             auto test_entry = entry;
             while (stack_index > 0) {
-               if (test_entry->method_id == method_id) {
+               if (test_entry->method->method_id == method_id) {
                   found = true;
                   break;
                }
@@ -189,12 +186,12 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
             if (found) {
                thread_info->stack_index--;
 
-               while (entry->method_id != method_id) {
+               while (entry->method->method_id != method_id) {
                   tm_end_event(entry, thread_info, thread_info->last_time);
 
                   thread_info->stack_index--;
                   entry = thread_info->stack[thread_info->stack_index];
-                  printf(" - Closed method %i : %.*s\n", entry->method_id, str_prt(entry->method->name));
+                  printf(" - Closed method %i : %.*s\n", entry->method->method_id, str_prt(entry->method->name));
                }
 
                tm_end_event(entry, thread_info, time);
@@ -232,6 +229,20 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
 
       for (--thread_info->stack_index; thread_info->stack_index >= 0; --thread_info->stack_index) {
          tm_end_event(thread_info->stack[thread_info->stack_index], thread_info, timeline->end_time);
+      }
+
+      auto thread = timeline->threads + thread_index;
+      for (TimelineEventChunk *chunk = thread->first; chunk; chunk = chunk->next) {
+         if (!chunk->entry_count) continue;
+
+         chunk->start_time = chunk->entries[0].start_time;
+         chunk->end_time = 0;
+
+         for (int i = 0; i < chunk->entry_count; i++) {
+            auto entry = chunk->entries + i;
+            if (chunk->start_time > entry->start_time) chunk->start_time = entry->start_time;
+            if (chunk->end_time < entry->end_time) chunk->end_time = entry->end_time;
+         }
       }
    }
 
@@ -329,4 +340,45 @@ void tm_grow_method_table(TimelineMethodTable *method_table) {
       }
       free(old_methods);
    }
+}
+
+TimelineCursor tm_start_cursor(TimelineThread *thread) {
+   TimelineCursor result = {};
+   if (thread->first && thread->first->entry_count) {
+      result.thread = thread;
+      result.chunk = thread->first;
+      result.event_index = 0;
+   }
+   return result;
+}
+
+TimelineCursor tm_start_cursor(TimelineThread *thread, int64_t start_time) {
+   TimelineCursor result = {};
+   if (thread->first && thread->first->entry_count) {
+      result.thread = thread;
+      result.chunk = thread->first;
+      result.event_index = 0;
+
+      while (result.chunk && result.chunk->end_time < start_time) {
+         result.chunk = result.chunk->next;
+      }
+   }
+   return result;
+}
+
+bool tm_step_cursor(TimelineCursor *cursor, int64_t start_time) {
+   cursor->event_index++;
+
+   assert(cursor->chunk);
+   if (cursor->event_index >= cursor->chunk->entry_count) {
+      cursor->chunk = cursor->chunk->next;
+
+      while (cursor->chunk && cursor->chunk->end_time < start_time) {
+         cursor->chunk = cursor->chunk->next;
+      }
+
+      cursor->event_index = 0;
+   }
+
+   return cursor->chunk;
 }

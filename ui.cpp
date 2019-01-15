@@ -25,6 +25,8 @@ void ui_run(void (*update)(Context *, cairo_t *)) {
             ctx.real_delta = (double) (now - ctx.time_counter) / SDL_GetPerformanceFrequency();
             if (ctx.real_delta > 1.0) ctx.real_delta = 1.0;
 
+            printf("%f\n", ctx.real_delta);
+
             ctx.time_counter = now;
             ctx.proc_time += ctx.real_delta;
 

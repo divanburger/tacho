@@ -29,7 +29,7 @@ struct {
    double draw_time_width;
 
    Timeline timeline;
-   TimelineThread* thread;
+   TimelineThread *thread;
 
    TimelineEvent *highlighted_event;
    TimelineEvent *active_event;
@@ -41,11 +41,13 @@ struct {
    int64_t watch_panel_width;
    bool watch_panel_open;
 
+   int64_t methods_y;
+
    double tooltip_w = 0.0;
    double tooltip_h = 0.0;
 } state = {};
 
-String timeline_scaled_time_str(MemoryArena* arena, int64_t time) {
+String timeline_scaled_time_str(MemoryArena *arena, int64_t time) {
    if (time < 2000L)
       return str_print(arena, "%.2f ns", time);
    else if (time < 2000000L)
@@ -56,7 +58,7 @@ String timeline_scaled_time_str(MemoryArena* arena, int64_t time) {
       return str_print(arena, "%.2f s", time / 1000000000.0);
 }
 
-String timeline_full_time_str(MemoryArena* arena, int64_t time) {
+String timeline_full_time_str(MemoryArena *arena, int64_t time) {
    if (!time) return str_copy(arena, "0");
 
    StringBuilder builder;
@@ -140,16 +142,17 @@ void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect 
    double draw_y = area.y - state.draw_y + 25.0;
 
    for (int32_t thread_index = 0; thread_index < timeline->thread_count; thread_index++) {
-      TimelineThread* thread = timeline->threads + thread_index;
+      TimelineThread *thread = timeline->threads + thread_index;
 
-      snprintf(buffer, array_size(buffer), "%u - %u - events: %li", thread->thread_id, thread->fiber_id, thread->events);
+      snprintf(buffer, array_size(buffer), "%u - %u - events: %li", thread->thread_id, thread->fiber_id,
+               thread->events);
 
       cairo_text_extents_t text_extents;
       cairo_text_extents(cr, buffer, &text_extents);
 
-      cairo_set_source_rgb(cr, Colour {0.2, 0.2, 0.2});
-      cairo_move_to(cr, area.x, draw_y + thread_header_height + 0.5);
-      cairo_line_to(cr, area.x + area.w, draw_y + thread_header_height + 0.5);
+      cairo_set_source_rgb(cr, Colour{0.2, 0.2, 0.2});
+      cairo_move_to(cr, area.x, draw_y + thread_header_height - 0.5);
+      cairo_line_to(cr, area.x + area.w, draw_y + thread_header_height - 0.5);
       cairo_stroke(cr);
 
       cairo_rectangle(cr, area.x, draw_y, text_extents.width + 8, thread_header_height);
@@ -161,93 +164,105 @@ void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect 
 
       draw_y += thread_header_height;
 
-      for (TimelineEventChunk *chunk = thread->first; chunk; chunk = chunk->next) {
-         for (int index = 0; index < chunk->entry_count; index++) {
-            TimelineEvent *entry = chunk->entries + index;
+      TimelineEventChunk* old_chunk = nullptr;
 
-            if (entry->end_time < state.draw_start_time || entry->start_time > draw_end_time) continue;
+      for (TimelineCursor cursor = tm_start_cursor(thread, state.draw_start_time); tm_cursor_valid(&cursor); tm_step_cursor(&cursor, state.draw_start_time)) {
+         TimelineEvent *entry = tm_cursor_event(&cursor);
 
-            double x0 = (entry->start_time - state.draw_start_time) * width_scale;
-            double x1 = (entry->end_time - state.draw_start_time) * width_scale;
+//         if (old_chunk != cursor.chunk) {
+//            old_chunk = cursor.chunk;
+//            auto x = area.x + (cursor.chunk->start_time - state.draw_start_time) * width_scale;
+//
+//            cairo_set_source_rgb(cr, Colour{1.0, 1.0, 1.0});
+//            cairo_move_to(cr, x, draw_y + thread_header_height);
+//            cairo_line_to(cr, x, draw_y + thread_header_height + event_height * thread->deepest_level);
+//            cairo_stroke(cr);
+//         }
 
-            if (x0 < 0.0) x0 = 0.0;
-            if (x1 > area.w) x1 = area.w;
+         if (entry->end_time < state.draw_start_time) continue;
+         if (entry->start_time > draw_end_time) break;
 
-            double w = x1 - x0;
+         double x0 = (entry->start_time - state.draw_start_time) * width_scale;
+         double x1 = (entry->end_time - state.draw_start_time) * width_scale;
 
-            x0 += area.x;
-            x1 += area.x;
+         if (x0 < 0.0) x0 = 0.0;
+         if (x1 > area.w) x1 = area.w;
 
-            if (w >= 0.1) {
-               double y0 = draw_y + entry->depth * event_height;
+         double w = x1 - x0;
 
-               if (ctx->mouse_x >= x0 && ctx->mouse_x <= x1 && ctx->mouse_y >= y0 && ctx->mouse_y < y0 + 15) {
-                  state.highlighted_event = entry;
+         x0 += area.x;
+         x1 += area.x;
+
+         if (w >= 0.5) {
+            double y0 = draw_y + entry->depth * event_height;
+
+            if (ctx->mouse_x >= x0 && ctx->mouse_x <= x1 && ctx->mouse_y >= y0 && ctx->mouse_y < y0 + 15) {
+               state.highlighted_event = entry;
+            }
+
+            Colour background = {0.33, 0.67, 1.00};
+            Colour text_colour = {0.9, 0.9, 0.9};
+
+            if (entry->method == state.active_method) {
+               background = {1.0, 0.67, 0.33};
+            }
+
+            if (entry == state.active_event) {
+               background = {0.9, 0.9, 0.9};
+               text_colour = {0.0, 0.0, 0.0};
+            } else if (entry == state.highlighted_event) {
+               background *= 0.65;
+            } else {
+               background *= 0.50;
+            }
+
+            if (w >= 20.0) {
+               cairo_set_source_rgb(cr, background.r * 0.6, background.g * 0.6, background.b * 0.6);
+               cairo_rectangle(cr, x0, y0, w, event_height);
+               cairo_fill(cr);
+
+               cairo_set_source_rgb(cr, background.r, background.g, background.b);
+               cairo_rectangle(cr, x0 + 0.5, y0 + 0.5, w - 1.0, event_height - 1.0);
+               cairo_stroke(cr);
+
+               double text_x = x0 + 2, text_w = w - 4;
+               if (text_x < 2.0) {
+                  text_x = 2.0;
+                  text_w = x1 - text_x - 4;
                }
 
-               Colour background = {0.33, 0.67, 1.00};
-               Colour text_colour = {0.9, 0.9, 0.9};
+               cairo_save(cr);
+               cairo_rectangle(cr, text_x, y0, text_w, 15);
+               cairo_clip(cr);
 
-               if (entry->method == state.active_method) {
-                  background = {1.0, 0.67, 0.33};
-               }
+               TimelineMethod *method = entry->method;
 
-               if (entry == state.active_event) {
-                  background = {0.9, 0.9, 0.9};
-                  text_colour = {0.0, 0.0, 0.0};
-               } else if (entry == state.highlighted_event) {
-                  background *= 0.65;
-               } else {
-                  background *= 0.50;
-               }
+               cairo_text_extents_t extents;
+               cairo_text_extents(cr, method->name.data, &extents);
 
-               if (w >= 20.0) {
-                  cairo_set_source_rgb(cr, background.r * 0.6, background.g * 0.6, background.b * 0.6);
-                  cairo_rectangle(cr, x0, y0, w, event_height);
-                  cairo_fill(cr);
+               cairo_set_source_rgb(cr, text_colour);
+               cairo_move_to(cr, text_x, y0 + font_extents.ascent);
+               cairo_show_text(cr, method->name.data);
 
-                  cairo_set_source_rgb(cr, background.r, background.g, background.b);
-                  cairo_rectangle(cr, x0 + 0.5, y0 + 0.5, w - 1.0, event_height - 1.0);
-                  cairo_stroke(cr);
+               text_x += extents.x_advance + 4.0;
 
-                  double text_x = x0 + 2, text_w = w - 4;
-                  if (text_x < 2.0) {
-                     text_x = 2.0;
-                     text_w = x1 - text_x - 4;
-                  }
+               String time_str = timeline_scaled_time_str(&ctx->temp, entry->end_time - entry->start_time);
 
-                  cairo_save(cr);
-                  cairo_rectangle(cr, text_x, y0, text_w, 15);
-                  cairo_clip(cr);
+               cairo_set_source_rgb(cr, lerp(0.25, text_colour, background));
+               cairo_move_to(cr, text_x, y0 + font_extents.ascent);
+               cairo_show_text(cr, time_str.data);
 
-                  TimelineMethod *method = entry->method;
-
-                  cairo_text_extents_t extents;
-                  cairo_text_extents(cr, method->name.data, &extents);
-
-                  cairo_set_source_rgb(cr, text_colour);
-                  cairo_move_to(cr, text_x, y0 + font_extents.ascent);
-                  cairo_show_text(cr, method->name.data);
-
-                  text_x += extents.x_advance + 4.0;
-
-                  String time_str = timeline_scaled_time_str(&ctx->temp, entry->end_time - entry->start_time);
-
-                  cairo_set_source_rgb(cr, lerp(0.25, text_colour, background));
-                  cairo_move_to(cr, text_x, y0 + font_extents.ascent);
-                  cairo_show_text(cr, time_str.data);
-
-                  cairo_restore(cr);
-               } else {
-                  cairo_set_source_rgb(cr, background.r * 0.3, background.g * 0.3, background.b * 0.3);
-                  cairo_rectangle(cr, x0, y0, w, 15);
-                  cairo_fill(cr);
-               }
+               cairo_restore(cr);
+            } else {
+               cairo_set_source_rgb(cr, background.r * 0.3, background.g * 0.3, background.b * 0.3);
+               cairo_rectangle(cr, x0, y0, w, 15);
+               cairo_fill(cr);
             }
          }
       }
 
       draw_y += event_height * thread->deepest_level;
+      if (draw_y > ctx->height) break;
    }
 
    if (state.highlighted_event && ctx->click_went_up && (abs(ctx->click_mouse_x - ctx->mouse_x) <= 2)) {
@@ -279,33 +294,35 @@ void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect 
       int64_t sub_draw_interval = draw_interval / 10;
 
       int64_t time = state.draw_start_time;
-      time = (int64_t)(time / draw_interval) * draw_interval;
+      time = (int64_t) (time / draw_interval) * draw_interval;
 
       while (time <= state.draw_start_time + state.draw_time_width) {
          double x = (time - state.draw_start_time) * width_scale;
+         double rx = (int64_t) x + 0.5;
 
          cairo_set_source_rgb(cr, 0.9, 0.9, 0.9);
-         cairo_move_to(cr, x, area.y);
-         cairo_line_to(cr, x, area.y + 20.0);
+         cairo_move_to(cr, rx, area.y);
+         cairo_line_to(cr, rx, area.y + 20.0);
          cairo_stroke(cr);
 
          String time_str = timeline_full_time_str(&ctx->temp, time);
 
          cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
-         cairo_move_to(cr, x + 5.0, area.y + 11.0 + (10.0 - font_extents.height) * 0.5 + font_extents.ascent);
+         cairo_move_to(cr, rx + 5.0, area.y + 11.0 + (10.0 - font_extents.height) * 0.5 + font_extents.ascent);
          cairo_show_text(cr, time_str.data);
 
          cairo_set_source_rgb(cr, 0.9, 0.9, 0.9);
-         cairo_move_to(cr, x + 4.0, area.y + 10.0 + (10.0 - font_extents.height) * 0.5 + font_extents.ascent);
+         cairo_move_to(cr, rx + 4.0, area.y + 10.0 + (10.0 - font_extents.height) * 0.5 + font_extents.ascent);
          cairo_show_text(cr, time_str.data);
 
          if (sub_draw_interval * width_scale > 40.0) {
             for (int i = 0; i < 9; i++) {
                time += sub_draw_interval;
                x = (time - state.draw_start_time) * width_scale;
+               rx = (int64_t) x + 0.5;
 
-               cairo_move_to(cr, x, area.y);
-               cairo_line_to(cr, x, area.y + (i == 4 ? 15.0 : 8.0));
+               cairo_move_to(cr, rx, area.y);
+               cairo_line_to(cr, rx, area.y + (i == 4 ? 15.0 : 8.0));
                cairo_stroke(cr);
             }
 
@@ -325,28 +342,33 @@ void timeline_methods_update(Context *ctx, cairo_t *cr, Timeline *timeline, irec
 
    int64_t method_height = 30;
 
-   int64_t y = area.y;
+   bool inside_area = inside(area, ctx->mouse_x, ctx->mouse_y);
+   if (!inside_area) state.highlighted_method = nullptr;
+
+   if (inside_area) {
+      state.methods_y += ctx->zoom * method_height;
+      if (state.methods_y < 0) state.methods_y = 0;
+   }
+
+   int64_t y = area.y - state.methods_y;
 
    cairo_font_extents_t font_extents;
    cairo_font_extents(cr, &font_extents);
-
-   bool inside_area = inside(area, ctx->mouse_x, ctx->mouse_y);
-   if (!inside_area) state.highlighted_method = nullptr;
 
    for (int64_t i = 0; i < timeline->method_table.count; i++) {
       auto method = timeline->method_table.methods[i];
 
 //      double self_time_fraction = (double)method->self_time / timeline->highest_method_total_time;
 //      double total_time_fraction = (double)method->total_time / timeline->highest_method_total_time;
-//
-//      auto colour = (method == state.active_method) ? Colour {0.4, 0.4, 0.4} : Colour {0.1, 0.2, 0.3};
-//
-//      if (method == state.active_method) {
-//         cairo_set_source_rgb(cr, colour * 0.3);
-//         cairo_rectangle(cr, area.x, y, area.w, method_height);
-//         cairo_fill(cr);
-//      }
-//
+
+      auto colour = Colour{0.1, 0.2, 0.3};
+
+      if (method == state.active_method) {
+         cairo_set_source_rgb(cr, colour);
+         cairo_rectangle(cr, area.x, y, area.w, method_height);
+         cairo_fill(cr);
+      }
+
 //      cairo_set_source_rgb(cr, colour);
 //      cairo_rectangle(cr, area.x, y, area.w * self_time_fraction, method_height);
 //      cairo_fill(cr);
@@ -359,11 +381,12 @@ void timeline_methods_update(Context *ctx, cairo_t *cr, Timeline *timeline, irec
       cairo_move_to(cr, area.x + 4, y + (method_height * 0.5 - font_extents.height) * 0.5 + font_extents.ascent);
       cairo_show_text(cr, method->name.data);
 
-      if (inside(Rect(area.x, (int)y, area.w, (int)method_height), ctx->mouse_x, ctx->mouse_y)) {
+      if (inside(Rect(area.x, (int) y, area.w, (int) method_height), ctx->mouse_x, ctx->mouse_y)) {
          state.highlighted_method = method;
       }
 
       y += method_height;
+      if (y > ctx->height) break;
    }
 
    cairo_reset_clip(cr);
@@ -395,10 +418,12 @@ void timeline_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect area) 
    cairo_move_to(cr, area.x + 4, area.y + (header_height - font_extents.height) * 0.5 + font_extents.ascent);
    cairo_show_text(cr, timeline->name.data);
 
-   timeline_chart_update(ctx, cr, timeline, Rect(area.x, area.y + header_height, area.w - method_panel_width, area.h - header_height));
+   timeline_chart_update(ctx, cr, timeline,
+                         Rect(area.x, area.y + header_height, area.w - method_panel_width, area.h - header_height));
 
    int methods_x = area.x + area.w - method_panel_width;
-   timeline_methods_update(ctx, cr, timeline, Rect(methods_x, area.y + header_height, method_panel_width, area.h - header_height));
+   timeline_methods_update(ctx, cr, timeline,
+                           Rect(methods_x, area.y + header_height, method_panel_width, area.h - header_height));
 
    cairo_set_source_rgb(cr, 0.5, 0.5, 0.5);
    cairo_move_to(cr, methods_x - 0.5, area.y + header_height);
@@ -523,7 +548,7 @@ void update(Context *ctx, cairo_t *cr) {
       w = (w < text_extents.width) ? text_extents.width : w;
       y += font_extents.height;
 
-      line = str_print(&ctx->temp, "%.*s:%i",  str_prt(method->path), method->line_no);
+      line = str_print(&ctx->temp, "%.*s:%i", str_prt(method->path), method->line_no);
       cairo_move_to(cr, x + 6, y + font_extents.ascent);
       cairo_show_text(cr, line.data);
       cairo_text_extents(cr, line.data, &text_extents);
@@ -563,6 +588,9 @@ int main(int argc, char **args) {
       printf("Unknown file type %s\n", args[1]);
       return 2;
    }
+
+   printf("sizeof(TimelineEventChunk) = %li\n", sizeof(TimelineEventChunk));
+   printf("sizeof(TimelineEvent) = %li\n", sizeof(TimelineEvent));
 
    ui_run(update);
    return 0;
