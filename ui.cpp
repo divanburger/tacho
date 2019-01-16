@@ -13,24 +13,31 @@ void ui_run(void (*update)(Context *, cairo_t *)) {
       ctx.running = true;
       ctx.width = 640;
       ctx.height = 480;
+      ctx.dirty = true;
 
       arena_init(&ctx.temp);
 
-      if (SDL_CreateWindowAndRenderer(ctx.width, ctx.height, SDL_WINDOW_RESIZABLE, &window, &renderer) == 0) {
+      window = SDL_CreateWindow("Tacho", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, ctx.width, ctx.height,
+            SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+
+      if (window) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
+
+      if (window && renderer) {
          auto backbuffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, ctx.width,
                                              ctx.height);
 
          while (ctx.running) {
-            auto now = SDL_GetPerformanceCounter();
-            ctx.real_delta = (double) (now - ctx.time_counter) / SDL_GetPerformanceFrequency();
+            auto time_start = SDL_GetPerformanceCounter();
+            ctx.real_delta = (double) (time_start - ctx.time_counter) / SDL_GetPerformanceFrequency();
             if (ctx.real_delta > 1.0) ctx.real_delta = 1.0;
 
-            printf("%f\n", ctx.real_delta);
+            auto old_mouse_pos = ctx.mouse_pos;
 
-            ctx.time_counter = now;
+            ctx.time_counter = time_start;
             ctx.proc_time += ctx.real_delta;
 
-            ctx.zoom = 0;
+            ctx.mouse_delta = {};
+            ctx.mouse_delta_z = 0;
             ctx.click_went_down = false;
             ctx.click_went_up = false;
             ctx.double_click = false;
@@ -43,26 +50,25 @@ void ui_run(void (*update)(Context *, cairo_t *)) {
                   }
                      break;
                   case SDL_MOUSEWHEEL: {
-                     ctx.zoom += event.wheel.y;
+                     ctx.mouse_delta_z += event.wheel.y;
+                     ctx.dirty = true;
                   }
                      break;
                   case SDL_MOUSEMOTION: {
-                     ctx.mouse_x = event.motion.x;
-                     ctx.mouse_y = event.motion.y;
+                     ctx.mouse_pos = {event.motion.x, event.motion.y};
+                     ctx.dirty = true;
                   }
                      break;
                   case SDL_MOUSEBUTTONDOWN: {
-                     ctx.mouse_x = event.button.x;
-                     ctx.mouse_y = event.button.y;
-                     ctx.click_mouse_x = event.button.x;
-                     ctx.click_mouse_y = event.button.y;
+                     ctx.mouse_pos = {event.button.x, event.button.y};
+                     ctx.click_mouse_pos = ctx.mouse_pos;
                      ctx.click = true;
                      ctx.click_went_down = true;
+                     ctx.dirty = true;
                   }
                      break;
                   case SDL_MOUSEBUTTONUP: {
-                     ctx.mouse_x = event.button.x;
-                     ctx.mouse_y = event.button.y;
+                     ctx.mouse_pos = {event.button.x, event.button.y};
                      ctx.click = false;
                      ctx.click_went_up = true;
 
@@ -70,6 +76,7 @@ void ui_run(void (*update)(Context *, cairo_t *)) {
                         ctx.double_click = true;
                      }
                      ctx.last_click = ctx.proc_time;
+                     ctx.dirty = true;
                   }
                      break;
                   case SDL_WINDOWEVENT: {
@@ -82,6 +89,7 @@ void ui_run(void (*update)(Context *, cairo_t *)) {
                            SDL_DestroyTexture(backbuffer);
                            backbuffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
                                                           SDL_TEXTUREACCESS_STREAMING, ctx.width, ctx.height);
+                           ctx.dirty = true;
 
                         }
                            break;
@@ -96,23 +104,36 @@ void ui_run(void (*update)(Context *, cairo_t *)) {
                }
             }
 
-            void *pixels;
-            int pitch;
-            SDL_LockTexture(backbuffer, nullptr, &pixels, &pitch);
-            auto cairo_surface = cairo_image_surface_create_for_data((uint8_t *) pixels, CAIRO_FORMAT_ARGB32, ctx.width,
-                                                                     ctx.height, pitch);
-            auto cairo = cairo_create(cairo_surface);
+            ctx.mouse_delta = ctx.mouse_pos - old_mouse_pos;
 
-            auto temp_section = begin_temp_section(&ctx.temp);
+            bool dirty = ctx.dirty;
+            if (ctx.dirty) {
+               ctx.dirty = false;
 
-            update(&ctx, cairo);
+               void *pixels;
+               int pitch;
+               SDL_LockTexture(backbuffer, nullptr, &pixels, &pitch);
+               auto cairo_surface = cairo_image_surface_create_for_data((uint8_t *) pixels, CAIRO_FORMAT_ARGB32,
+                                                                        ctx.width,
+                                                                        ctx.height, pitch);
+               auto cairo = cairo_create(cairo_surface);
 
-            end_temp_section(temp_section);
+               auto temp_section = begin_temp_section(&ctx.temp);
 
-            SDL_UnlockTexture(backbuffer);
+               update(&ctx, cairo);
 
-            SDL_RenderCopy(renderer, backbuffer, nullptr, nullptr);
-            SDL_RenderPresent(renderer);
+               end_temp_section(temp_section);
+
+               SDL_UnlockTexture(backbuffer);
+
+               SDL_RenderCopy(renderer, backbuffer, nullptr, nullptr);
+               SDL_RenderPresent(renderer);
+            }
+            auto time_end = SDL_GetPerformanceCounter();
+            auto time_taken = ((double) (time_end - time_start) / SDL_GetPerformanceFrequency());
+
+            auto wait_time = (int)((1000.0 / 100.0) - time_taken);
+            if (!dirty && !ctx.dirty && wait_time >= 1) SDL_Delay(wait_time);
          }
       }
 

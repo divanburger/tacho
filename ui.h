@@ -8,9 +8,11 @@
 #include <cairo/cairo.h>
 
 #include "memory.h"
+#include "math.h"
 
 struct Context {
    bool running;
+   bool dirty;
    int width;
    int height;
 
@@ -18,12 +20,11 @@ struct Context {
    double real_delta;
    double proc_time;
 
-   int zoom;
-   int mouse_x;
-   int mouse_y;
+   i32vec2 mouse_delta;
+   int mouse_delta_z;
 
-   int click_mouse_x;
-   int click_mouse_y;
+   i32vec2 mouse_pos;
+   i32vec2 click_mouse_pos;
 
    bool click;
    bool click_went_up;

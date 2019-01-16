@@ -81,7 +81,7 @@ String timeline_full_time_str(MemoryArena *arena, int64_t time) {
    return strb_done(&builder);
 }
 
-void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect area) {
+void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32rect area) {
    char buffer[4096];
 
    double event_height = 15.0;
@@ -105,22 +105,22 @@ void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect 
 
    if (ctx->click) {
       state.draw_start_time = (int64_t) (state.click_draw_start_time +
-                                         ((ctx->click_mouse_x - ctx->mouse_x) * state.draw_time_width) / area.w);
-      state.draw_y = (int64_t) (state.click_draw_y + (ctx->click_mouse_y - ctx->mouse_y));
+                                         ((ctx->click_mouse_pos.x - ctx->mouse_pos.x) * state.draw_time_width) / area.w);
+      state.draw_y = (int64_t) (state.click_draw_y + (ctx->click_mouse_pos.y - ctx->mouse_pos.y));
    }
 
    state.highlighted_event = nullptr;
 
-   double mouse_time = state.draw_start_time + ((ctx->mouse_x - area.x) * state.draw_time_width) / area.w;
+   double mouse_time = state.draw_start_time + ((ctx->mouse_pos.x - area.x) * state.draw_time_width) / area.w;
 
-   bool inside_area = inside(area, ctx->mouse_x, ctx->mouse_y);
+   bool inside_area = inside(area, ctx->mouse_pos.x, ctx->mouse_pos.y);
    if (inside_area) {
-      double zoom_factor = (ctx->zoom > 0 ? (1.0 / 1.1) : 1.1);
-      int zoom_iters = (ctx->zoom > 0 ? ctx->zoom : -ctx->zoom);
+      double zoom_factor = (ctx->mouse_delta_z > 0 ? (1.0 / 1.1) : 1.1);
+      int zoom_iters = (ctx->mouse_delta_z > 0 ? ctx->mouse_delta_z : -ctx->mouse_delta_z);
       for (int i = 0; i < zoom_iters; i++) {
          state.draw_time_width *= zoom_factor;
       }
-      state.draw_start_time = (int64_t) (mouse_time - ((ctx->mouse_x - area.x) * state.draw_time_width) / area.w);
+      state.draw_start_time = (int64_t) (mouse_time - ((ctx->mouse_pos.x - area.x) * state.draw_time_width) / area.w);
    }
 
    if (state.draw_start_time < timeline->start_time) {
@@ -196,7 +196,7 @@ void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect 
          if (w >= 0.5) {
             double y0 = draw_y + entry->depth * event_height;
 
-            if (ctx->mouse_x >= x0 && ctx->mouse_x <= x1 && ctx->mouse_y >= y0 && ctx->mouse_y < y0 + 15) {
+            if (ctx->mouse_pos.x >= x0 && ctx->mouse_pos.x <= x1 && ctx->mouse_pos.y >= y0 && ctx->mouse_pos.y < y0 + 15) {
                state.highlighted_event = entry;
             }
 
@@ -265,9 +265,10 @@ void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect 
       if (draw_y > ctx->height) break;
    }
 
-   if (state.highlighted_event && ctx->click_went_up && (abs(ctx->click_mouse_x - ctx->mouse_x) <= 2)) {
+   if (state.highlighted_event && ctx->click_went_up && (abs(ctx->click_mouse_pos.x - ctx->mouse_pos.x) <= 2)) {
       state.active_event = state.highlighted_event;
       state.active_method = nullptr;
+      ctx->dirty = true;
       if (ctx->double_click) {
          state.draw_start_time = state.active_event->start_time;
          state.draw_time_width = state.active_event->end_time - state.active_event->start_time;
@@ -336,17 +337,17 @@ void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect 
    cairo_reset_clip(cr);
 }
 
-void timeline_methods_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect area) {
+void timeline_methods_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32rect area) {
    cairo_rectangle(cr, area.x, area.y, area.w, area.h);
    cairo_clip(cr);
 
    int64_t method_height = 30;
 
-   bool inside_area = inside(area, ctx->mouse_x, ctx->mouse_y);
+   bool inside_area = inside(area, ctx->mouse_pos.x, ctx->mouse_pos.y);
    if (!inside_area) state.highlighted_method = nullptr;
 
    if (inside_area) {
-      state.methods_y += ctx->zoom * method_height;
+      state.methods_y -= ctx->mouse_delta_z * method_height;
       if (state.methods_y < 0) state.methods_y = 0;
    }
 
@@ -381,7 +382,7 @@ void timeline_methods_update(Context *ctx, cairo_t *cr, Timeline *timeline, irec
       cairo_move_to(cr, area.x + 4, y + (method_height * 0.5 - font_extents.height) * 0.5 + font_extents.ascent);
       cairo_show_text(cr, method->name.data);
 
-      if (inside(Rect(area.x, (int) y, area.w, (int) method_height), ctx->mouse_x, ctx->mouse_y)) {
+      if (inside(Rect(area.x, (int) y, area.w, (int) method_height), ctx->mouse_pos.x, ctx->mouse_pos.y)) {
          state.highlighted_method = method;
       }
 
@@ -391,13 +392,14 @@ void timeline_methods_update(Context *ctx, cairo_t *cr, Timeline *timeline, irec
 
    cairo_reset_clip(cr);
 
-   if (state.highlighted_method && ctx->click_went_up && (abs(ctx->click_mouse_x - ctx->mouse_x) <= 2)) {
+   if (state.highlighted_method && ctx->click_went_up && (abs(ctx->click_mouse_pos.x - ctx->mouse_pos.x) <= 2)) {
       state.active_method = state.highlighted_method;
       state.active_event = nullptr;
+      ctx->dirty = true;
    }
 }
 
-void timeline_update(Context *ctx, cairo_t *cr, Timeline *timeline, irect area) {
+void timeline_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32rect area) {
    char buffer[4096];
 
    int method_panel_width = 300;
@@ -513,18 +515,18 @@ void update(Context *ctx, cairo_t *cr) {
    //
 
    if (state.highlighted_event) {
-      double sx = ctx->mouse_x + 16;
-      double sy = ctx->mouse_y;
+      double sx = ctx->mouse_pos.x + 16;
+      double sy = ctx->mouse_pos.y;
       double w = 0;
       cairo_text_extents_t text_extents;
 
       if (sx + state.tooltip_w > ctx->width) {
-         sx = ctx->mouse_x - 16 - state.tooltip_w;
+         sx = ctx->mouse_pos.x - 16 - state.tooltip_w;
       }
 
       if (sx < 0) {
          sy += 24;
-         sx = ctx->mouse_x - state.tooltip_w * 0.5;
+         sx = ctx->mouse_pos.x - state.tooltip_w * 0.5;
          if (sx < 0) sx = 0;
       }
 
