@@ -35,19 +35,15 @@ struct TimelineEvent {
 
    int16_t thread_index;
    int16_t depth;
-   int32_t events;
+
+   int32_t next_sibling_index;
 };
 
 struct TimelineEventChunk {
-   int64_t start_time;
-   int64_t end_time;
-
-   TimelineEventChunk *prev;
    TimelineEventChunk *next;
-
-   TimelineEvent entries[1022];
+   TimelineEvent entries[1023];
    int entry_count;
-   uint32_t padding[7];
+   uint32_t padding[5];
 };
 
 
@@ -57,18 +53,11 @@ struct TimelineThread {
 
    int32_t deepest_level;
    int16_t index;
-   int64_t events;
+   int32_t event_count;
 
-   TimelineEventChunk *first;
-   TimelineEventChunk *last;
+   TimelineEvent* events;
 
    MemoryArena *arena;
-};
-
-struct TimelineCursor {
-   int event_index;
-   TimelineEventChunk *chunk;
-   TimelineThread *thread;
 };
 
 struct TimelineMethodTable {
@@ -91,8 +80,6 @@ struct Timeline {
    String name;
    MemoryArena arena;
 
-   uint64_t highest_method_total_time;
-
    TimelineMethodTable method_table;
 };
 
@@ -114,46 +101,21 @@ struct ThreadInfo {
    int64_t last_time;
    int32_t stack_index;
    TimelineEvent *stack[1024];
+
+   TimelineEventChunk *first;
+   TimelineEventChunk *last;
 };
 
 bool tm_read_file(Timeline *timeline, const char *filename);
-
-void tm_end_event(TimelineEvent *event, ThreadInfo *info, uint64_t time);
 
 void tm_init(Timeline *timeline);
 
 TimelineThread *tm_find_or_create_thread(Timeline *timeline, uint32_t thread_id, uint32_t fiber_id);
 
-TimelineEvent *tm_create_event(TimelineThread *thread);
+TimelineEvent *tm_push_event(ThreadInfo *thread_info);
 
 TimelineMethod *tm_find_or_create_method(Timeline *timeline, String name, String path, int line_no);
 
 void tm_grow_method_table(TimelineMethodTable *method_table);
 
 uint64_t tm_hash_call(TimelineEvent *call_entry);
-
-TimelineCursor tm_start_cursor(TimelineThread *thread);
-TimelineCursor tm_start_cursor(TimelineThread *thread, int64_t start_time);
-
-inline bool tm_step_cursor(TimelineCursor *cursor) {
-   cursor->event_index++;
-
-   assert(cursor->chunk);
-   if (cursor->event_index >= cursor->chunk->entry_count) {
-      cursor->chunk = cursor->chunk->next;
-      cursor->event_index = 0;
-   }
-
-   return cursor->chunk;
-}
-
-bool tm_step_cursor(TimelineCursor *cursor, int64_t start_time);
-
-inline bool tm_cursor_valid(TimelineCursor *cursor) {
-   return cursor->chunk;
-}
-
-inline TimelineEvent *tm_cursor_event(TimelineCursor *cursor) {
-   assert(cursor->chunk);
-   return cursor->chunk->entries + cursor->event_index;
-}

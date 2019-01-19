@@ -131,6 +131,7 @@ void ui_run(void (*update)(Context *, cairo_t *)) {
             }
             auto time_end = SDL_GetPerformanceCounter();
             auto time_taken = ((double) (time_end - time_start) / SDL_GetPerformanceFrequency());
+//            printf("%1.6f\n", time_taken);
 
             auto wait_time = (int)((1000.0 / 100.0) - time_taken);
             if (!dirty && !ctx.dirty && wait_time >= 1) SDL_Delay(wait_time);

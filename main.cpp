@@ -145,7 +145,7 @@ void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32rec
       TimelineThread *thread = timeline->threads + thread_index;
 
       snprintf(buffer, array_size(buffer), "%u - %u - events: %li", thread->thread_id, thread->fiber_id,
-               thread->events);
+               thread->event_count);
 
       cairo_text_extents_t text_extents;
       cairo_text_extents(cr, buffer, &text_extents);
@@ -164,26 +164,18 @@ void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32rec
 
       draw_y += thread_header_height;
 
-      TimelineEventChunk* old_chunk = nullptr;
+      for (int64_t event_index = 0; event_index < thread->event_count; event_index++) {
+         TimelineEvent *event = thread->events + event_index;
 
-      for (TimelineCursor cursor = tm_start_cursor(thread, state.draw_start_time); tm_cursor_valid(&cursor); tm_step_cursor(&cursor, state.draw_start_time)) {
-         TimelineEvent *entry = tm_cursor_event(&cursor);
+         if (event->end_time < state.draw_start_time) {
+            if (event->next_sibling_index) event_index = event->next_sibling_index - 1;
+            continue;
+         }
 
-//         if (old_chunk != cursor.chunk) {
-//            old_chunk = cursor.chunk;
-//            auto x = area.x + (cursor.chunk->start_time - state.draw_start_time) * width_scale;
-//
-//            cairo_set_source_rgb(cr, Colour{1.0, 1.0, 1.0});
-//            cairo_move_to(cr, x, draw_y + thread_header_height);
-//            cairo_line_to(cr, x, draw_y + thread_header_height + event_height * thread->deepest_level);
-//            cairo_stroke(cr);
-//         }
+         if (event->start_time > draw_end_time) break;
 
-         if (entry->end_time < state.draw_start_time) continue;
-         if (entry->start_time > draw_end_time) break;
-
-         double x0 = (entry->start_time - state.draw_start_time) * width_scale;
-         double x1 = (entry->end_time - state.draw_start_time) * width_scale;
+         double x0 = (event->start_time - state.draw_start_time) * width_scale;
+         double x1 = (event->end_time - state.draw_start_time) * width_scale;
 
          if (x0 < 0.0) x0 = 0.0;
          if (x1 > area.w) x1 = area.w;
@@ -194,23 +186,23 @@ void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32rec
          x1 += area.x;
 
          if (w >= 0.5) {
-            double y0 = draw_y + entry->depth * event_height;
+            double y0 = draw_y + event->depth * event_height;
 
             if (ctx->mouse_pos.x >= x0 && ctx->mouse_pos.x <= x1 && ctx->mouse_pos.y >= y0 && ctx->mouse_pos.y < y0 + 15) {
-               state.highlighted_event = entry;
+               state.highlighted_event = event;
             }
 
             Colour background = {0.33, 0.67, 1.00};
             Colour text_colour = {0.9, 0.9, 0.9};
 
-            if (entry->method == state.active_method) {
+            if (event->method == state.active_method) {
                background = {1.0, 0.67, 0.33};
             }
 
-            if (entry == state.active_event) {
+            if (event == state.active_event) {
                background = {0.9, 0.9, 0.9};
                text_colour = {0.0, 0.0, 0.0};
-            } else if (entry == state.highlighted_event) {
+            } else if (event == state.highlighted_event) {
                background *= 0.65;
             } else {
                background *= 0.50;
@@ -235,7 +227,7 @@ void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32rec
                cairo_rectangle(cr, text_x, y0, text_w, 15);
                cairo_clip(cr);
 
-               TimelineMethod *method = entry->method;
+               TimelineMethod *method = event->method;
 
                cairo_text_extents_t extents;
                cairo_text_extents(cr, method->name.data, &extents);
@@ -246,7 +238,7 @@ void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32rec
 
                text_x += extents.x_advance + 4.0;
 
-               String time_str = timeline_scaled_time_str(&ctx->temp, entry->end_time - entry->start_time);
+               String time_str = timeline_scaled_time_str(&ctx->temp, event->end_time - event->start_time);
 
                cairo_set_source_rgb(cr, lerp(0.25, text_colour, background));
                cairo_move_to(cr, text_x, y0 + font_extents.ascent);
@@ -257,6 +249,10 @@ void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32rec
                cairo_set_source_rgb(cr, background.r * 0.3, background.g * 0.3, background.b * 0.3);
                cairo_rectangle(cr, x0, y0, w, 15);
                cairo_fill(cr);
+            }
+         } else {
+            if (event->next_sibling_index) {
+               event_index = event->next_sibling_index - 1;
             }
          }
       }
@@ -441,10 +437,10 @@ void update(Context *ctx, cairo_t *cr) {
 
       for (int thread_index = 0; thread_index < timeline->thread_count; thread_index++) {
          TimelineThread *thread = timeline->threads + thread_index;
-         printf("Thread %i: [%u, %u] %li events\n", thread_index, thread->thread_id, thread->fiber_id, thread->events);
-         if (thread->events >= highest_events) {
+         printf("Thread %i: [%u, %u] %li events\n", thread_index, thread->thread_id, thread->fiber_id, thread->event_count);
+         if (thread->event_count >= highest_events) {
             state.thread = thread;
-            highest_events = thread->events;
+            highest_events = thread->event_count;
          }
       }
    }
@@ -591,7 +587,6 @@ int main(int argc, char **args) {
       return 2;
    }
 
-   printf("sizeof(TimelineEventChunk) = %li\n", sizeof(TimelineEventChunk));
    printf("sizeof(TimelineEvent) = %li\n", sizeof(TimelineEvent));
 
    ui_run(update);
