@@ -1,4 +1,13 @@
-This is the viewer application for the tacho ruby gem.
+This is the viewer application for the [tacho ruby gem](https://github.com/divanburger/tacho-ruby).
+
+# Code style
+
+Even if the application is written in C++, we use classic C-style with some C++ features.
+Notably we use the following C++ features:
+
+* operator overloading
+* method overloading
+* auto keyword (type inference)
 
 # Libraries
 
