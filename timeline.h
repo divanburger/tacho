@@ -7,6 +7,7 @@
 #include <cstdint>
 #include "memory.h"
 #include "string.h"
+#include "hash_table.h"
 
 struct TimelineMethod {
    uint64_t hash;
@@ -55,7 +56,7 @@ struct TimelineThread {
    int16_t index;
    int32_t event_count;
 
-   TimelineEvent* events;
+   TimelineEvent *events;
 
    MemoryArena *arena;
 };
@@ -81,6 +82,15 @@ struct Timeline {
    MemoryArena arena;
 
    TimelineMethodTable method_table;
+};
+
+struct TimelineStatistics {
+   bool calculated;
+
+   int64_t time_span;
+
+   HashTable method_statistics;
+   MemoryArena arena;
 };
 
 struct CallBody {
@@ -119,3 +129,5 @@ TimelineMethod *tm_find_or_create_method(Timeline *timeline, String name, String
 void tm_grow_method_table(TimelineMethodTable *method_table);
 
 uint64_t tm_hash_call(TimelineEvent *call_entry);
+
+void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics, int64_t start_time, int64_t end_time, int32_t start_depth = 0);

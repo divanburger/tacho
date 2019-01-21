@@ -8,11 +8,19 @@
 #include "memory.h"
 
 void arena_init(MemoryArena *arena) {
-
+   arena->block = nullptr;
 }
 
 void arena_destroy(MemoryArena *arena) {
+   auto block = arena->block;
 
+   while (block) {
+      void* mem = block;
+      block = block->prev;
+      free(mem);
+   }
+
+   arena->block = nullptr;
 }
 
 void arena_stats(MemoryArena *arena, uint64_t *allocated_ptr, uint64_t *used_ptr) {

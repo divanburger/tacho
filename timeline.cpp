@@ -10,7 +10,6 @@
 
 void tm_init(Timeline *timeline) {
    timeline->thread_count = 0;
-
    timeline->start_time = 0;
    timeline->end_time = 0;
 
@@ -335,4 +334,49 @@ void tm_grow_method_table(TimelineMethodTable *method_table) {
       }
       free(old_methods);
    }
+}
+
+void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics, int64_t start_time, int64_t end_time, int32_t start_depth) {
+   auto table = &statistics->method_statistics;
+   statistics->time_span = end_time - start_time;
+
+   arena_destroy(&statistics->arena);
+
+   arena_init(&statistics->arena);
+   ht_init(table);
+
+   for (int16_t thread_index = 0; thread_index < timeline->thread_count; thread_index++) {
+      auto thread = timeline->threads + thread_index;
+      
+      for (int32_t event_index = 0; event_index < thread->event_count; event_index++) {
+         auto event = thread->events + event_index;
+
+         if (event->depth < start_depth) continue;
+         if (event->end_time < start_time) continue;
+         if (event->start_time > end_time) continue;
+
+         int64_t clipped_start_time = start_time > event->start_time ? start_time : event->start_time;
+         int64_t clipped_end_time = event->end_time > end_time ? end_time : event->end_time;
+
+         if (clipped_start_time < clipped_end_time) {
+            auto method_statistics = (TimelineMethodStatistics *) ht_find(table, (void *) event->method);
+            if (!method_statistics) {
+               method_statistics = alloc_type(&statistics->arena, TimelineMethodStatistics);
+               method_statistics->method = event->method;
+               method_statistics->total_time = 0;
+               method_statistics->self_time = 0;
+               method_statistics->child_time = 0;
+               method_statistics->calls = 0;
+               ht_add(table, event->method, method_statistics);
+            }
+
+            int64_t event_time = clipped_end_time - clipped_start_time;
+
+            method_statistics->total_time += event_time;
+            method_statistics->calls++;
+         }
+      }
+   }
+
+   statistics->calculated = true;
 }

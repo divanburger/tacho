@@ -14,6 +14,7 @@
 #include "math.h"
 #include "colour.h"
 #include "cairo_helpers.h"
+#include "hash_table.h"
 
 struct {
    MemoryArena memory;
@@ -36,6 +37,8 @@ struct {
 
    TimelineMethod *highlighted_method;
    TimelineMethod *active_method;
+
+   TimelineStatistics selection_statistics;
 
    String watch_path;
    int64_t watch_panel_width;
@@ -105,7 +108,8 @@ void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32rec
 
    if (ctx->click) {
       state.draw_start_time = (int64_t) (state.click_draw_start_time +
-                                         ((ctx->click_mouse_pos.x - ctx->mouse_pos.x) * state.draw_time_width) / area.w);
+                                         ((ctx->click_mouse_pos.x - ctx->mouse_pos.x) * state.draw_time_width) /
+                                         area.w);
       state.draw_y = (int64_t) (state.click_draw_y + (ctx->click_mouse_pos.y - ctx->mouse_pos.y));
    }
 
@@ -188,7 +192,8 @@ void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32rec
          if (w >= 0.5) {
             double y0 = draw_y + event->depth * event_height;
 
-            if (ctx->mouse_pos.x >= x0 && ctx->mouse_pos.x <= x1 && ctx->mouse_pos.y >= y0 && ctx->mouse_pos.y < y0 + 15) {
+            if (ctx->mouse_pos.x >= x0 && ctx->mouse_pos.x <= x1 && ctx->mouse_pos.y >= y0 &&
+                ctx->mouse_pos.y < y0 + 15) {
                state.highlighted_event = event;
             }
 
@@ -269,6 +274,9 @@ void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32rec
          state.draw_start_time = state.active_event->start_time;
          state.draw_time_width = state.active_event->end_time - state.active_event->start_time;
       }
+
+      tm_calculate_statistics(timeline, &state.selection_statistics,
+            state.active_event->start_time, state.active_event->end_time, state.active_event->depth);
    }
 
    // time axis
@@ -352,11 +360,14 @@ void timeline_methods_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32r
    cairo_font_extents_t font_extents;
    cairo_font_extents(cr, &font_extents);
 
-   for (int64_t i = 0; i < timeline->method_table.count; i++) {
-      auto method = timeline->method_table.methods[i];
+   TimelineStatistics* statistics = &state.selection_statistics;
+   HashTable* table = &statistics->method_statistics;
+   for (auto cursor = th_start_cursor(table); th_valid_cursor(table, cursor); cursor = th_step_cursor(table, cursor)) {
+      auto method_statistics = (TimelineMethodStatistics*)th_item(table, cursor);
+      auto method = method_statistics->method;
 
-//      double self_time_fraction = (double)method->self_time / timeline->highest_method_total_time;
-//      double total_time_fraction = (double)method->total_time / timeline->highest_method_total_time;
+//      double self_time_fraction = (double)method_statistics->self_time / statistics->longest_time;
+      double total_time_fraction = (double)method_statistics->total_time / statistics->time_span;
 
       auto colour = Colour{0.1, 0.2, 0.3};
 
@@ -373,6 +384,10 @@ void timeline_methods_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32r
 //      cairo_set_source_rgb(cr, colour * 0.7);
 //      cairo_rectangle(cr, area.x + area.w * self_time_fraction, y, area.w * (total_time_fraction - self_time_fraction), method_height);
 //      cairo_fill(cr);
+
+      cairo_set_source_rgb(cr, colour * 0.7);
+      cairo_rectangle(cr, area.x, y, area.w * total_time_fraction, method_height);
+      cairo_fill(cr);
 
       cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
       cairo_move_to(cr, area.x + 4, y + (method_height * 0.5 - font_extents.height) * 0.5 + font_extents.ascent);
@@ -437,7 +452,8 @@ void update(Context *ctx, cairo_t *cr) {
 
       for (int thread_index = 0; thread_index < timeline->thread_count; thread_index++) {
          TimelineThread *thread = timeline->threads + thread_index;
-         printf("Thread %i: [%u, %u] %li events\n", thread_index, thread->thread_id, thread->fiber_id, thread->event_count);
+         printf("Thread %i: [%u, %u] %li events\n", thread_index, thread->thread_id, thread->fiber_id,
+                thread->event_count);
          if (thread->event_count >= highest_events) {
             state.thread = thread;
             highest_events = thread->event_count;
@@ -588,6 +604,8 @@ int main(int argc, char **args) {
    }
 
    printf("sizeof(TimelineEvent) = %li\n", sizeof(TimelineEvent));
+
+   tm_calculate_statistics(timeline, &state.selection_statistics, 0, timeline->end_time);
 
    ui_run(update);
    return 0;
