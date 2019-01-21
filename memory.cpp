@@ -6,6 +6,7 @@
 #include <cassert>
 #include <cstdlib>
 #include "memory.h"
+#include "util.h"
 
 void arena_init(MemoryArena *arena) {
    arena->block = nullptr;
@@ -62,7 +63,7 @@ void end_temp_section(TempSection section) {
       assert(arena->block->temp_count == 1);
       void* mem = arena->block;
       arena->block = arena->block->prev;
-      free(mem);
+      raw_free(mem);
    }
    assert(arena->block == section.block);
 
@@ -74,7 +75,7 @@ void alloc_block(MemoryArena *arena, size_t size) {
    size_t required_size = arena->min_block_size > size ? arena->min_block_size : size;
 
    size_t size_with_header = sizeof(MemoryArenaBlock) + required_size;
-   auto mem = (uint8_t *) calloc(1, size_with_header);
+   auto mem = raw_alloc_array_zero(uint8_t, size_with_header);
    assert(mem);
 
    auto header = (MemoryArenaBlock *) mem;

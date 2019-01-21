@@ -17,7 +17,7 @@ struct MemoryArenaBlock {
 };
 
 struct MemoryArena {
-   size_t min_block_size = 8 * 1024;
+   size_t min_block_size = 8 * 1024 - sizeof(MemoryArenaBlock);
    MemoryArenaBlock *block = nullptr;
 };
 

@@ -332,7 +332,7 @@ void tm_grow_method_table(TimelineMethodTable *method_table) {
          method_table->hashes[i] = method->hash;
          method_table->methods[i] = method;
       }
-      free(old_methods);
+      raw_free(old_methods);
    }
 }
 
