@@ -49,7 +49,7 @@ struct {
 
 String timeline_scaled_time_str(MemoryArena *arena, int64_t time) {
    if (time < 2000L)
-      return str_print(arena, "%.2f ns", time);
+      return str_print(arena, "%li ns", time);
    else if (time < 2000000L)
       return str_print(arena, "%.2f µs", time / 1000.0);
    else if (time < 2000000000L)
