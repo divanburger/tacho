@@ -85,6 +85,8 @@ String timeline_full_time_str(MemoryArena *arena, int64_t time) {
 }
 
 void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32rect area) {
+   Colour chart_background = Colour{0.1, 0.1, 0.1};
+
    char buffer[4096];
 
    double event_height = 15.0;
@@ -93,7 +95,9 @@ void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32rec
    cairo_font_extents_t font_extents;
    cairo_font_extents(cr, &font_extents);
 
+   cairo_set_source_rgb(cr, chart_background);
    cairo_rectangle(cr, area.x, area.y, area.w, area.h);
+   cairo_fill_preserve(cr);
    cairo_clip(cr);
 
    if (state.draw_time_width == 0) {
@@ -251,7 +255,7 @@ void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32rec
 
                cairo_restore(cr);
             } else {
-               cairo_set_source_rgb(cr, background.r * 0.3, background.g * 0.3, background.b * 0.3);
+               cairo_set_source_rgb(cr, lerp(0.7, background, chart_background));
                cairo_rectangle(cr, x0, y0, w, 15);
                cairo_fill(cr);
             }
@@ -283,7 +287,7 @@ void timeline_chart_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32rec
    {
       int64_t time_axis_height = 25;
 
-      cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.6);
+      cairo_set_source_rgba(cr, 0.168, 0.168, 0.168, 0.6);
       cairo_rectangle(cr, area.x, area.y, area.w, time_axis_height);
       cairo_fill(cr);
 
