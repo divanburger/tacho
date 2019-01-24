@@ -89,7 +89,8 @@ struct TimelineStatistics {
 
    int64_t time_span;
 
-   HashTable method_statistics;
+   int32_t method_count;
+   TimelineMethodStatistics *method_statistics;
    MemoryArena arena;
 };
 
@@ -116,6 +117,14 @@ struct ThreadInfo {
    TimelineEventChunk *last;
 };
 
+enum class MethodSortOrder : int8_t {
+   SELF_TIME,
+   TOTAL_TIME,
+   CALLS,
+   NAME,
+   NONE
+};
+
 bool tm_read_file(Timeline *timeline, const char *filename);
 
 void tm_init(Timeline *timeline);
@@ -130,4 +139,7 @@ void tm_grow_method_table(TimelineMethodTable *method_table);
 
 uint64_t tm_hash_call(TimelineEvent *call_entry);
 
-void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics, int64_t start_time, int64_t end_time, int32_t start_depth = 0);
+void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics, int64_t start_time, int64_t end_time,
+                             int32_t start_depth = 0, MethodSortOrder order = MethodSortOrder::SELF_TIME);
+
+void tm_sort_statistics(TimelineStatistics *statistics, MethodSortOrder order);

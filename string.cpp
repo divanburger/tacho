@@ -9,6 +9,7 @@
 
 #include "string.h"
 #include "util.h"
+#include "math.h"
 
 //
 // String
@@ -34,6 +35,14 @@ String as_string(char *str) {
 bool str_equal(String a, String b) {
    if (a.length != b.length) return false;
    return (strncmp(a.data, b.data, (size_t)a.length) == 0);
+}
+
+int str_cmp(String a, String b) {
+   auto prefix_length = min(a.length, b.length);
+   if (prefix_length == 0) return b.length - a.length;
+
+   auto result = strncmp(a.data, b.data, (size_t)prefix_length);
+   return result == 0 ? a.length - b.length : result;
 }
 
 String str_print(MemoryArena *arena, const char *fmt, ...) {

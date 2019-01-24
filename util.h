@@ -10,6 +10,7 @@
 #define array_size(_arr) ((int)(sizeof(_arr)/sizeof(*(_arr))))
 
 #define DEBUG_ALLOCATIONS 1
+#undef DEBUG_ALLOCATIONS
 
 #ifdef DEBUG_ALLOCATIONS
 

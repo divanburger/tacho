@@ -242,34 +242,6 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
       }
    }
 
-//   for (int i = 0; i < timeline->method_table.count; i++) {
-//      auto method = timeline->method_table.methods[i];
-//      method->self_time = method->total_time - method->child_time;
-//
-//      if (method->total_time > timeline->highest_method_total_time) {
-//         timeline->highest_method_total_time = method->total_time;
-//      }
-//   }
-//
-//   qsort(timeline->method_table.methods, (size_t)timeline->method_table.count, sizeof(TimelineMethod*), [](const void* a_ptr, const void * b_ptr) -> int {
-//      auto a = *(TimelineMethod**)a_ptr;
-//      auto b = *(TimelineMethod**)b_ptr;
-//      if (a->total_time < b->total_time) {
-//         return 1;
-//      } else if (a->total_time > b->total_time) {
-//         return - 1;
-//      }
-//      return 0;
-//   });
-
-//   printf("Longest method: %lins\n", timeline->highest_method_total_time);
-//   printf("Method count: %i\n", timeline->method_table.count);
-//   for (int i = 0; i < timeline->method_table.count; i++) {
-//      auto method = timeline->method_table.methods[i];
-//      printf("%6li %10lins %10lins %10lins %.*s\n",
-//            method->calls, method->total_time, method->self_time, method->child_time, str_prt(method->name));
-//   }
-
    return true;
 }
 
@@ -336,14 +308,18 @@ void tm_grow_method_table(TimelineMethodTable *method_table) {
    }
 }
 
-void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics, int64_t start_time, int64_t end_time, int32_t start_depth) {
-   auto table = &statistics->method_statistics;
+void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics, int64_t start_time, int64_t end_time, int32_t start_depth, MethodSortOrder order) {
    statistics->time_span = end_time - start_time;
 
-   arena_destroy(&statistics->arena);
-
+   MemoryArena arena;
    arena_init(&statistics->arena);
+
+   HashTable method_statistics_table = {};
+   HashTable* table = &method_statistics_table;
    ht_init(table);
+
+   TimelineMethodStatistics* stack[1024];
+   int32_t stack_index = 0;
 
    for (int16_t thread_index = 0; thread_index < timeline->thread_count; thread_index++) {
       auto thread = timeline->threads + thread_index;
@@ -372,11 +348,94 @@ void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics,
 
             int64_t event_time = clipped_end_time - clipped_start_time;
 
+            if (event->depth > start_depth) {
+               // Within self
+               for (int32_t index = start_depth; index < event->depth; index++) {
+                  if (stack[index] && stack[index]->method == event->method) {
+                     method_statistics->total_time -= event_time;
+                     method_statistics->child_time -= event_time;
+                     break;
+                  }
+               }
+
+               TimelineMethodStatistics *parent_stat = stack[event->depth - 1];
+               if (parent_stat) {
+                  parent_stat->child_time += event_time;
+               }
+            }
+
             method_statistics->total_time += event_time;
             method_statistics->calls++;
+
+            stack[event->depth] = method_statistics;
+
+            while (stack_index > event->depth) {
+               stack[stack_index--] = nullptr;
+            }
+            stack_index = event->depth;
          }
       }
    }
 
    statistics->calculated = true;
+
+   statistics->method_count = table->count;
+   statistics->method_statistics = raw_alloc_array(TimelineMethodStatistics, table->count);
+
+   TimelineMethodStatistics* ptr = statistics->method_statistics;
+   for (auto cursor = th_start_cursor(table); th_valid_cursor(table, cursor); cursor = th_step_cursor(table, cursor)) {
+      auto item = *(TimelineMethodStatistics *) th_item(table, cursor);
+      item.self_time = item.total_time - item.child_time;
+      *(ptr++) = item;
+   }
+
+   tm_sort_statistics(statistics, order);
+
+   arena_destroy(&statistics->arena);
+}
+
+void tm_sort_statistics(TimelineStatistics *statistics, MethodSortOrder order) {
+   comparison_fn_t comparison_function;
+
+   switch (order) {
+      case MethodSortOrder::CALLS: {
+         comparison_function = [](const void* a_ptr, const void* b_ptr) -> int {
+            auto a = (TimelineMethodStatistics*)a_ptr;
+            auto b = (TimelineMethodStatistics*)b_ptr;
+
+            if (a->calls < b->calls) return 1;
+            if (a->calls > b->calls) return -1;
+            return 0;
+         };
+      } break;
+      case MethodSortOrder::SELF_TIME: {
+         comparison_function = [](const void* a_ptr, const void* b_ptr) -> int {
+            auto a = (TimelineMethodStatistics*)a_ptr;
+            auto b = (TimelineMethodStatistics*)b_ptr;
+
+            if (a->self_time < b->self_time) return 1;
+            if (a->self_time > b->self_time) return -1;
+            return 0;
+         };
+      } break;
+      case MethodSortOrder::TOTAL_TIME: {
+         comparison_function = [](const void* a_ptr, const void* b_ptr) -> int {
+            auto a = (TimelineMethodStatistics*)a_ptr;
+            auto b = (TimelineMethodStatistics*)b_ptr;
+
+            if (a->total_time < b->total_time) return 1;
+            if (a->total_time > b->total_time) return -1;
+            return 0;
+         };
+      } break;
+      case MethodSortOrder::NAME: {
+         comparison_function = [](const void* a_ptr, const void* b_ptr) -> int {
+            auto a = (TimelineMethodStatistics*)a_ptr;
+            auto b = (TimelineMethodStatistics*)b_ptr;
+            return str_cmp(a->method->name, b->method->name);
+         };
+      } break;
+   }
+
+   qsort(statistics->method_statistics, (size_t)statistics->method_count, sizeof(TimelineMethodStatistics), comparison_function);
 }
