@@ -31,21 +31,21 @@ File file_stat(String name) {
    return result;
 }
 
-void file_list_init(DirectoryList* list) {
+void file_list_init(DirectoryList *list) {
    list->last = nullptr;
    list->first = nullptr;
 }
 
-void file_list_free(DirectoryList* list) {
+void file_list_free(DirectoryList *list) {
    arena_destroy(&list->arena);
    list->last = nullptr;
    list->first = nullptr;
 }
 
-File* file_list_add(DirectoryList* list, FileType type, String name) {
-   DirectoryBlock* block = list->last;
+File *file_list_add(DirectoryList *list, FileType type, String name) {
+   DirectoryBlock *block = list->last;
    if (!block || block->count == array_size(block->files)) {
-      DirectoryBlock* new_block = alloc_type(&list->arena, DirectoryBlock);
+      DirectoryBlock *new_block = alloc_type(&list->arena, DirectoryBlock);
 
       new_block->prev = list->last;
       new_block->next = nullptr;
@@ -60,16 +60,15 @@ File* file_list_add(DirectoryList* list, FileType type, String name) {
       block = new_block;
    }
 
-   File* file = block->files + (block->count++);
+   File *file = block->files + (block->count++);
    file->type = type;
    file->name = name;
    return file;
 }
 
-void file_read_directory(DirectoryList* list, String path) {
-   DIR *d;
+void file_read_directory(DirectoryList *list, String path) {
+   DIR *d = opendir(path.data);
    struct dirent *dir;
-   d = opendir(path.data);
    if (d) {
       while ((dir = readdir(d)) != nullptr) {
          if (strcmp(dir->d_name, ".") == 0 || strcmp(dir->d_name, "..") == 0) {
@@ -87,4 +86,12 @@ void file_read_directory(DirectoryList* list, String path) {
       }
       closedir(d);
    }
+}
+
+int64_t file_list_count(DirectoryList *list) {
+   int64_t total = 0;
+   for (DirectoryBlock* block = list->first; block; block = block->next) {
+      total += block->count;
+   }
+   return total;
 }

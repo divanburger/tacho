@@ -335,7 +335,7 @@ void timeline_methods_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32r
 
    // Methods
    irect table_inner_area = Rect(area.x, area.y + method_height, area.w, area.h - method_height);
-   cairo_rectangle(cr,table_inner_area );
+   cairo_rectangle(cr, table_inner_area);
    cairo_clip(cr);
 
    if (!inside(table_inner_area, ctx->mouse_pos)) state.highlighted_method = nullptr;
@@ -477,12 +477,8 @@ void timeline_methods_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32r
 }
 
 void timeline_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32rect area) {
-   char buffer[4096];
-
    int method_panel_width = 400;
-
    int header_height = 20;
-   int blocks_y = area.y + header_height;
 
    cairo_set_font_size(cr, 10);
 
@@ -510,6 +506,40 @@ void timeline_update(Context *ctx, cairo_t *cr, Timeline *timeline, i32rect area
    cairo_stroke(cr);
 }
 
+void timeline_update_watch(Context *ctx, cairo_t *cr) {
+   cairo_font_extents_t font_extents;
+   cairo_font_extents(cr, &font_extents);
+
+   cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
+   cairo_rectangle(cr, 0, 0, state.watch_panel_width, ctx->height);
+   cairo_fill_preserve(cr);
+   cairo_clip(cr);
+
+   double cur_y = 2.0 + font_extents.ascent;
+
+   for (int64_t timeline_index = 0; timeline_index < state.timeline_count; timeline_index++) {
+      Timeline *timeline = state.timelines + timeline_index;
+
+      cairo_move_to(cr, 2.0, cur_y);
+      cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+      cairo_show_text(cr, timeline->name.data);
+
+      cur_y += font_extents.height + 2;
+
+      cairo_move_to(cr, 2.0, cur_y);
+      cairo_set_source_rgb(cr, 0.7, 0.7, 0.7);
+      cairo_show_text(cr, timeline->filename.data);
+
+      cur_y += font_extents.height + 4;
+   }
+
+   cairo_set_source_rgb(cr, 0.9, 0.9, 0.9);
+   cairo_move_to(cr, state.watch_panel_width, 0.0);
+   cairo_line_to(cr, state.watch_panel_width, ctx->height);
+   cairo_stroke(cr);
+   cairo_reset_clip(cr);
+}
+
 void update(Context *ctx, cairo_t *cr) {
    Timeline *timeline = &state.timeline;
 
@@ -532,7 +562,7 @@ void update(Context *ctx, cairo_t *cr) {
 
    if (str_nonblank(state.watch_path)) {
       state.watch_panel_open = true;
-      state.watch_panel_width = 200;
+      state.watch_panel_width = 400;
       timeline_view_x = (int) state.watch_panel_width;
       timeline_view_width -= state.watch_panel_width;
 
@@ -543,6 +573,26 @@ void update(Context *ctx, cairo_t *cr) {
          file_list_free(&state.profile_file_list);
          file_list_init(&state.profile_file_list);
          file_read_directory(&state.profile_file_list, state.watch_path);
+
+         raw_free(state.timelines);
+         state.timeline_count = file_list_count(&state.profile_file_list);
+         state.timelines = raw_alloc_array_zero(Timeline, state.timeline_count);
+
+         int64_t timeline_index = 0;
+         for (auto block = state.profile_file_list.first; block; block = block->next) {
+            for (int i = 0; i < block->count; i++) {
+               File *file = block->files + i;
+
+               if (file->type == FILE_TYPE_FILE) {
+                  String path = str_print(&ctx->temp, "%.*s/%.*s", str_prt(state.watch_path), str_prt(file->name));
+                  if (tm_read_file_header(state.timelines + timeline_index, path.data)) {
+                     timeline_index++;
+                  }
+               }
+            }
+         }
+
+         state.timeline_count = timeline_index;
       }
    } else {
       state.watch_panel_open = false;
@@ -561,42 +611,19 @@ void update(Context *ctx, cairo_t *cr) {
 
    timeline_update(ctx, cr, timeline, Rect(timeline_view_x, 0, timeline_view_width, ctx->height));
 
-   if (state.watch_panel_open) {
-      cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
-      cairo_rectangle(cr, 0, 0, state.watch_panel_width, ctx->height);
-      cairo_fill_preserve(cr);
-      cairo_clip(cr);
-
-      double cur_y = 2.0 + font_extents.ascent;
-
-      for (auto block = state.profile_file_list.first; block; block = block->next) {
-         for (int i = 0; i < block->count; i++) {
-            File *file = block->files + i;
-
-            cairo_move_to(cr, 2.0, cur_y);
-            cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
-            cairo_show_text(cr, file->name.data);
-
-            cur_y += font_extents.height * 2 + 4;
-         }
-      }
-
-      cairo_set_source_rgb(cr, 0.9, 0.9, 0.9);
-      cairo_move_to(cr, state.watch_panel_width, 0.0);
-      cairo_line_to(cr, state.watch_panel_width, ctx->height);
-      cairo_stroke(cr);
-      cairo_reset_clip(cr);
-   }
+   if (state.watch_panel_open) timeline_update_watch(ctx, cr);
 
    //
    // Tooltip
    //
+   bool tooltip = state.highlighted_event || state.highlighted_method;
 
-   if (state.highlighted_event) {
+   if (tooltip) {
+
+      cairo_text_extents_t text_extents;
       double sx = ctx->mouse_pos.x + 16;
       double sy = ctx->mouse_pos.y;
       double w = 0;
-      cairo_text_extents_t text_extents;
 
       if (sx + state.tooltip_w > ctx->width) {
          sx = ctx->mouse_pos.x - 16 - state.tooltip_w;
@@ -618,8 +645,14 @@ void update(Context *ctx, cairo_t *cr) {
       double x = sx;
       double y = sy + 4;
 
-      auto event = state.highlighted_event;
-      auto method = event->method;
+      TimelineMethod *method = nullptr;
+
+      if (state.highlighted_event) {
+         auto event = state.highlighted_event;
+         method = event->method;
+      } else if (state.highlighted_method) {
+         method = state.highlighted_method;
+      }
 
       String line = method->name;
       cairo_move_to(cr, x + 6, y + font_extents.ascent);
@@ -634,6 +667,11 @@ void update(Context *ctx, cairo_t *cr) {
       cairo_text_extents(cr, line.data, &text_extents);
       w = (w < text_extents.width) ? text_extents.width : w;
       y += font_extents.height;
+
+      state.tooltip_w = w + 12;
+      state.tooltip_h = y - sy + 8;
+
+      cairo_reset_clip(cr);
 
       state.tooltip_w = w + 12;
       state.tooltip_h = y - sy + 8;

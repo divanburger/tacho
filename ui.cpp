@@ -116,11 +116,12 @@ void ui_run(void (*update)(Context *, cairo_t *)) {
                auto cairo_surface = cairo_image_surface_create_for_data((uint8_t *) pixels, CAIRO_FORMAT_ARGB32,
                                                                         ctx.width,
                                                                         ctx.height, pitch);
-               auto cairo = cairo_create(cairo_surface);
+               ctx.cairo = cairo_create(cairo_surface);
 
                auto temp_section = begin_temp_section(&ctx.temp);
 
-               update(&ctx, cairo);
+               update(&ctx, ctx.cairo);
+               cairo_destroy(ctx.cairo);
 
                end_temp_section(temp_section);
 

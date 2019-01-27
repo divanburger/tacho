@@ -12,7 +12,8 @@ void tm_init(Timeline *timeline) {
    timeline->thread_count = 0;
    timeline->start_time = 0;
    timeline->end_time = 0;
-
+   timeline->method_table = {};
+   timeline->arena = {};
    tm_grow_method_table(&timeline->method_table);
 }
 
@@ -65,11 +66,68 @@ TimelineEvent *tm_push_event(ThreadInfo *thread_info) {
    return chunk->entries + (chunk->entry_count++);
 }
 
-bool tm_read_file(Timeline *timeline, const char *filename) {
-   tm_init(timeline);
+bool tm_read_file_header(Timeline *timeline, const char *filename) {
+   bool valid = true;
 
    FILE *input = fopen(filename, "rb");
    if (!input) return false;
+
+   tm_init(timeline);
+   timeline->filename = str_copy(&timeline->arena, filename);
+
+   char name_buffer[4096];
+
+   while (!feof(input)) {
+      uint8_t type;
+      uint64_t time = 0;
+      size_t read = 0;
+
+      read = fread(&type, sizeof(uint8_t), 1, input);
+      if (read != 1) {
+         valid = false;
+         break;
+      }
+      read = fread(&time, sizeof(uint64_t) - sizeof(uint8_t), 1, input);
+      if (read != 1) {
+         valid = false;
+         break;
+      }
+
+      if (type == 'S') {
+         uint32_t name_length;
+         read = fread(&name_length, sizeof(uint32_t), 1, input);
+         if (read != 1) {
+            valid = false;
+            break;
+         }
+
+         read = fread(&name_buffer, name_length, 1, input);
+         if (read != 1) {
+            valid = false;
+            break;
+         }
+
+         timeline->name = str_copy(&timeline->arena, name_buffer, name_length);
+         break;
+      } else {
+         valid = false;
+         break;
+      }
+   }
+
+   fclose(input);
+
+   timeline->header_only = true;
+   timeline->loaded = valid;
+   return valid;
+}
+
+bool tm_read_file(Timeline *timeline, const char *filename) {
+   FILE *input = fopen(filename, "rb");
+   if (!input) return false;
+
+   tm_init(timeline);
+   timeline->filename = str_copy(&timeline->arena, filename);
 
    ThreadInfo thread_infos[64];
 
@@ -85,7 +143,6 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
       while (!feof(input)) {
          uint8_t type;
          uint64_t time = 0;
-
          uint32_t method_id = 0;
 
          fread(&type, sizeof(uint8_t), 1, input);
@@ -242,6 +299,7 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
       }
    }
 
+   timeline->loaded = true;
    return true;
 }
 
@@ -308,22 +366,23 @@ void tm_grow_method_table(TimelineMethodTable *method_table) {
    }
 }
 
-void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics, int64_t start_time, int64_t end_time, int32_t start_depth, MethodSortOrder order) {
+void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics, int64_t start_time, int64_t end_time,
+                             int32_t start_depth, MethodSortOrder order) {
    statistics->time_span = end_time - start_time;
 
    MemoryArena arena;
    arena_init(&statistics->arena);
 
    HashTable method_statistics_table = {};
-   HashTable* table = &method_statistics_table;
+   HashTable *table = &method_statistics_table;
    ht_init(table);
 
-   TimelineMethodStatistics* stack[1024];
+   TimelineMethodStatistics *stack[1024];
    int32_t stack_index = 0;
 
    for (int16_t thread_index = 0; thread_index < timeline->thread_count; thread_index++) {
       auto thread = timeline->threads + thread_index;
-      
+
       for (int32_t event_index = 0; event_index < thread->event_count; event_index++) {
          auto event = thread->events + event_index;
 
@@ -382,7 +441,7 @@ void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics,
    statistics->method_count = table->count;
    statistics->method_statistics = raw_alloc_array(TimelineMethodStatistics, table->count);
 
-   TimelineMethodStatistics* ptr = statistics->method_statistics;
+   TimelineMethodStatistics *ptr = statistics->method_statistics;
    for (auto cursor = th_start_cursor(table); th_valid_cursor(table, cursor); cursor = th_step_cursor(table, cursor)) {
       auto item = *(TimelineMethodStatistics *) th_item(table, cursor);
       item.self_time = item.total_time - item.child_time;
@@ -399,43 +458,48 @@ void tm_sort_statistics(TimelineStatistics *statistics, MethodSortOrder order) {
 
    switch (order) {
       case MethodSortOrder::CALLS: {
-         comparison_function = [](const void* a_ptr, const void* b_ptr) -> int {
-            auto a = (TimelineMethodStatistics*)a_ptr;
-            auto b = (TimelineMethodStatistics*)b_ptr;
+         comparison_function = [](const void *a_ptr, const void *b_ptr) -> int {
+            auto a = (TimelineMethodStatistics *) a_ptr;
+            auto b = (TimelineMethodStatistics *) b_ptr;
 
             if (a->calls < b->calls) return 1;
             if (a->calls > b->calls) return -1;
             return 0;
          };
-      } break;
+      }
+         break;
       case MethodSortOrder::SELF_TIME: {
-         comparison_function = [](const void* a_ptr, const void* b_ptr) -> int {
-            auto a = (TimelineMethodStatistics*)a_ptr;
-            auto b = (TimelineMethodStatistics*)b_ptr;
+         comparison_function = [](const void *a_ptr, const void *b_ptr) -> int {
+            auto a = (TimelineMethodStatistics *) a_ptr;
+            auto b = (TimelineMethodStatistics *) b_ptr;
 
             if (a->self_time < b->self_time) return 1;
             if (a->self_time > b->self_time) return -1;
             return 0;
          };
-      } break;
+      }
+         break;
       case MethodSortOrder::TOTAL_TIME: {
-         comparison_function = [](const void* a_ptr, const void* b_ptr) -> int {
-            auto a = (TimelineMethodStatistics*)a_ptr;
-            auto b = (TimelineMethodStatistics*)b_ptr;
+         comparison_function = [](const void *a_ptr, const void *b_ptr) -> int {
+            auto a = (TimelineMethodStatistics *) a_ptr;
+            auto b = (TimelineMethodStatistics *) b_ptr;
 
             if (a->total_time < b->total_time) return 1;
             if (a->total_time > b->total_time) return -1;
             return 0;
          };
-      } break;
+      }
+         break;
       case MethodSortOrder::NAME: {
-         comparison_function = [](const void* a_ptr, const void* b_ptr) -> int {
-            auto a = (TimelineMethodStatistics*)a_ptr;
-            auto b = (TimelineMethodStatistics*)b_ptr;
+         comparison_function = [](const void *a_ptr, const void *b_ptr) -> int {
+            auto a = (TimelineMethodStatistics *) a_ptr;
+            auto b = (TimelineMethodStatistics *) b_ptr;
             return str_cmp(a->method->name, b->method->name);
          };
-      } break;
+      }
+         break;
    }
 
-   qsort(statistics->method_statistics, (size_t)statistics->method_count, sizeof(TimelineMethodStatistics), comparison_function);
+   qsort(statistics->method_statistics, (size_t) statistics->method_count, sizeof(TimelineMethodStatistics),
+         comparison_function);
 }

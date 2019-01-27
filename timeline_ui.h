@@ -13,6 +13,7 @@
 #include "colour.h"
 #include "cairo_helpers.h"
 #include "hash_table.h"
+#include "array.h"
 
 struct TimelineUIState {
    MemoryArena memory;
@@ -41,6 +42,9 @@ struct TimelineUIState {
    String watch_path;
    int64_t watch_panel_width;
    bool watch_panel_open;
+
+   int64_t timeline_count;
+   Timeline* timelines;
 
    MethodSortOrder method_sort_order_highlighted;
    MethodSortOrder method_sort_order_active;

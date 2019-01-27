@@ -11,6 +11,8 @@
 #include "math.h"
 
 struct Context {
+   cairo_t* cairo;
+
    bool running;
    bool dirty;
    int width;

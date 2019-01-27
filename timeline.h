@@ -72,6 +72,11 @@ struct TimelineMethodTable {
 };
 
 struct Timeline {
+   String filename;
+   int16_t version;
+   bool loaded;
+   bool header_only;
+
    int16_t thread_count;
    TimelineThread threads[64];
 
@@ -124,6 +129,8 @@ enum class MethodSortOrder : int8_t {
    NAME,
    NONE
 };
+
+bool tm_read_file_header(Timeline *timeline, const char *filename);
 
 bool tm_read_file(Timeline *timeline, const char *filename);
 
