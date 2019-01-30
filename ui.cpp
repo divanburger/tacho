@@ -130,11 +130,12 @@ void ui_run(void (*update)(UIContext *, cairo_t *)) {
                SDL_RenderCopy(renderer, backbuffer, nullptr, nullptr);
                SDL_RenderPresent(renderer);
             }
+
             auto time_end = SDL_GetPerformanceCounter();
             auto time_taken = ((f64) (time_end - time_start) / SDL_GetPerformanceFrequency());
-//            printf("%1.6f\n", time_taken);
 
-            auto wait_time = (int)((1000.0 / 100.0) - time_taken);
+            auto wait_time = (int)(1000.0 / 60.0 - time_taken * 1000.0);
+            printf("%1.6f - %6i\n", time_taken, wait_time);
             if (!dirty && !ui_context.dirty && wait_time >= 1) SDL_Delay(wait_time);
          }
       }
