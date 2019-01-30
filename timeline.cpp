@@ -8,11 +8,6 @@
 #include "timeline.h"
 #include "util.h"
 
-void tm_init(Timeline *timeline) {
-   memset(timeline, 0, sizeof(Timeline));
-   tm_grow_method_table(&timeline->method_table);
-}
-
 TimelineThread *tm_find_or_create_thread(Timeline *timeline, u32 thread_id, u32 fiber_id) {
    TimelineThread *thread = nullptr;
 
@@ -68,7 +63,6 @@ bool tm_read_file_header(Timeline *timeline, const char *filename) {
    FILE *input = fopen(filename, "rb");
    if (!input) return false;
 
-   tm_init(timeline);
    timeline->filename = str_copy(&timeline->arena, filename);
 
    char name_buffer[4096];
@@ -122,10 +116,9 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
    FILE *input = fopen(filename, "rb");
    if (!input) return false;
 
-   tm_init(timeline);
    timeline->filename = str_copy(&timeline->arena, filename);
 
-   ThreadInfo thread_infos[64];
+   ThreadInfo thread_infos[64] = {};
 
    {
       char name_buffer[4096];
@@ -342,7 +335,7 @@ TimelineMethod *tm_find_or_create_method(Timeline *timeline, String name, String
 }
 
 void tm_grow_method_table(TimelineMethodTable *method_table) {
-   if (method_table->hashes) free(method_table->hashes);
+   if (method_table->hashes) raw_free(method_table->hashes);
 
    auto old_methods = method_table->methods;
 
@@ -366,11 +359,12 @@ void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics,
                              i32 start_depth, MethodSortOrder order) {
    statistics->time_span = end_time - start_time;
 
-   MemoryArena arena;
-   arena_init(&statistics->arena);
+   MemoryArena temp = {};
 
-   HashTable method_statistics_table = {};
-   HashTable *table = &method_statistics_table;
+   arena_clear(&statistics->arena);
+
+   HashTable<void*> method_statistics_table = {};
+   auto table = &method_statistics_table;
    ht_init(table);
 
    TimelineMethodStatistics *stack[1024];
@@ -390,15 +384,15 @@ void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics,
          i64 clipped_end_time = event->end_time > end_time ? end_time : event->end_time;
 
          if (clipped_start_time < clipped_end_time) {
-            auto method_statistics = (TimelineMethodStatistics *) ht_find(table, (void *) event->method);
+            auto method_statistics = (TimelineMethodStatistics *) ht_find(table, (void*)event->method);
             if (!method_statistics) {
-               method_statistics = alloc_type(&statistics->arena, TimelineMethodStatistics);
+               method_statistics = alloc_type(&temp, TimelineMethodStatistics);
                method_statistics->method = event->method;
                method_statistics->total_time = 0;
                method_statistics->self_time = 0;
                method_statistics->child_time = 0;
                method_statistics->calls = 0;
-               ht_add(table, event->method, method_statistics);
+               ht_add(table, (void*)event->method, method_statistics);
             }
 
             i64 event_time = clipped_end_time - clipped_start_time;
@@ -435,10 +429,10 @@ void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics,
    statistics->calculated = true;
 
    statistics->method_count = table->count;
-   statistics->method_statistics = raw_alloc_array(TimelineMethodStatistics, table->count);
+   statistics->method_statistics = alloc_array(&statistics->arena, TimelineMethodStatistics, table->count);
 
    TimelineMethodStatistics *ptr = statistics->method_statistics;
-   for (auto cursor = th_start_cursor(table); th_valid_cursor(table, cursor); cursor = th_step_cursor(table, cursor)) {
+   for (auto cursor = th_cursor_start(table); th_cursor_valid(table, cursor); cursor = th_cursor_step(table, cursor)) {
       auto item = *(TimelineMethodStatistics *) th_item(table, cursor);
       item.self_time = item.total_time - item.child_time;
       *(ptr++) = item;
@@ -446,7 +440,7 @@ void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics,
 
    tm_sort_statistics(statistics, order);
 
-   arena_destroy(&statistics->arena);
+   arena_destroy(&temp);
 }
 
 void tm_sort_statistics(TimelineStatistics *statistics, MethodSortOrder order) {

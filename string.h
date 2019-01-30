@@ -20,6 +20,7 @@ inline bool str_nonblank(String str) {return str.length > 0 && str.data;}
 
 String str_copy(MemoryArena *arena, const char* str, int length);
 String str_copy(MemoryArena *arena, const char* str);
+String str_copy(MemoryArena *arena, String str);
 
 bool str_equal(String a, String b);
 int str_cmp(String a, String b);
@@ -27,6 +28,8 @@ int str_cmp(String a, String b);
 String str_print(MemoryArena *arena, const char *fmt, ...);
 
 String as_string(char* str);
+
+#define const_as_string(str) (String{sizeof(str)-1, str})
 
 #define str_prt(s) s.length, s.data
 

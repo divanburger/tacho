@@ -14,20 +14,9 @@
 
 #ifdef DEBUG_ALLOCATIONS
 
-inline void* raw_alloc_size(size_t size) {
-   printf("MALLOC: %li\n", size);
-   return malloc(size);
-}
-
-inline void* raw_alloc_size_zero(size_t size) {
-   printf("CALLOC: %li\n", size);
-   return calloc(1, size);
-}
-
-inline void raw_free(void* ptr) {
-   printf("FREE\n");
-   free(ptr);
-}
+#define raw_alloc_size(size) (printf("MALLOC(%i): %s:%i\n", (size), __FILE__, __LINE__), malloc(size))
+#define raw_alloc_size_zero(size) (printf("CALLOC(%i): %s:%i\n", (size), __FILE__, __LINE__), calloc(1, size))
+#define raw_free(ptr) (printf("FREE: %s:%i\n", __FILE__, __LINE__), free(ptr))
 
 #else
 

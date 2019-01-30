@@ -31,13 +31,8 @@ File file_stat(String name) {
    return result;
 }
 
-void file_list_init(DirectoryList *list) {
-   list->last = nullptr;
-   list->first = nullptr;
-}
-
-void file_list_free(DirectoryList *list) {
-   arena_destroy(&list->arena);
+void file_list_clear(DirectoryList *list) {
+   arena_clear(&list->arena);
    list->last = nullptr;
    list->first = nullptr;
 }
@@ -45,10 +40,8 @@ void file_list_free(DirectoryList *list) {
 File *file_list_add(DirectoryList *list, FileType type, String name) {
    DirectoryBlock *block = list->last;
    if (!block || block->count == array_size(block->files)) {
-      DirectoryBlock *new_block = alloc_type(&list->arena, DirectoryBlock);
-
+      DirectoryBlock *new_block = alloc_type_zero(&list->arena, DirectoryBlock);
       new_block->prev = list->last;
-      new_block->next = nullptr;
       list->last = new_block;
 
       if (block) {

@@ -14,6 +14,7 @@
 #include "cairo_helpers.h"
 #include "hash_table.h"
 #include "array.h"
+#include "array_list.h"
 
 struct TimelineUIState {
    MemoryArena memory;
@@ -28,8 +29,8 @@ struct TimelineUIState {
    i64 draw_start_time;
    f64 draw_time_width;
 
-   i64 timeline_count;
-   Timeline* timelines;
+   ArrayList<Timeline> timelines;
+   HashTable<String> timelines_table;
    Timeline* highlighted_timeline;
    Timeline* active_timeline;
 

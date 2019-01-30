@@ -11,6 +11,13 @@
 #include "math.h"
 #include "hash_table.h"
 
+struct UIScrollable {
+   i32 scroll;
+   i32rect rect;
+   i32vec2 content;
+   bool hover;
+};
+
 struct UIContext {
    cairo_t *cairo;
 
@@ -36,19 +43,12 @@ struct UIContext {
    f64 last_click;
 
    MemoryArena temp;
-   MemoryArena permenant;
+   MemoryArena permanent;
 
-   HashTable scrollables;
+   HashTable<void*> scrollables;
 };
 
 extern UIContext ui_context;
-
-struct UIScrollable {
-   i32 scroll;
-   i32rect rect;
-   i32vec2 content;
-   bool hover;
-};
 
 void ui_run(void (*update)(UIContext *, cairo_t *));
 

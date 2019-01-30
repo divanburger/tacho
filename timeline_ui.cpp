@@ -499,7 +499,7 @@ void timeline_update_runs(UIContext *ctx, cairo_t *cr, irect area) {
    cairo_font_extents_t font_extents;
    cairo_font_extents(cr, &font_extents);
 
-   auto scroll_area = ui_scrollable_begin("runs", area, Vec(area.w, (i32)state.timeline_count * 30));
+   auto scroll_area = ui_scrollable_begin("runs", area, Vec(area.w, (i32)state.timelines.count * 30));
    i32 cur_y = scroll_area.y;
 
    cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
@@ -508,14 +508,14 @@ void timeline_update_runs(UIContext *ctx, cairo_t *cr, irect area) {
    auto old_highlighted = state.highlighted_timeline;
    state.highlighted_timeline = nullptr;
 
-   for (i64 timeline_index = 0; timeline_index < state.timeline_count; timeline_index++) {
-      Timeline *timeline = state.timelines + timeline_index;
+   for (auto cursor = arl_cursor_start(&state.timelines); arl_cursor_valid(cursor); arl_cursor_step(&cursor)) {
+      Timeline *timeline = arl_cursor_get(cursor);
 
       if (inside(Rect(scroll_area.x, cur_y, scroll_area.w, 30), ctx->mouse_pos)) {
          state.highlighted_timeline = timeline;
       }
 
-      if (state.highlighted_timeline && ctx->click_went_up) {
+      if (state.highlighted_timeline && state.highlighted_timeline != state.active_timeline && ctx->click_went_up) {
          switch_timeline(state.highlighted_timeline);
          ctx->dirty = true;
       }
@@ -553,22 +553,6 @@ void timeline_update_runs(UIContext *ctx, cairo_t *cr, irect area) {
 }
 
 void update(UIContext *ctx, cairo_t *cr) {
-   Timeline *timeline = state.active_timeline;
-
-//   if (!state.thread) {
-//      u64 highest_events = 0;
-//
-//      for (int thread_index = 0; thread_index < timeline->thread_count; thread_index++) {
-//         TimelineThread *thread = timeline->threads + thread_index;
-//         printf("Thread %i: [%u, %u] %li events\n", thread_index, thread->thread_id, thread->fiber_id,
-//                thread->event_count);
-//         if (thread->event_count >= highest_events) {
-//            state.thread = thread;
-//            highest_events = thread->event_count;
-//         }
-//      }
-//   }
-
    int timeline_view_x = 0;
    int timeline_view_width = ctx->width;
 
@@ -582,29 +566,24 @@ void update(UIContext *ctx, cairo_t *cr) {
          state.last_file_check = ctx->proc_time;
 
          printf("Scanning directory\n");
-         file_list_free(&state.profile_file_list);
-         file_list_init(&state.profile_file_list);
+         file_list_clear(&state.profile_file_list);
          file_read_directory(&state.profile_file_list, state.watch_path);
 
-         raw_free(state.timelines);
-         state.timeline_count = file_list_count(&state.profile_file_list);
-         state.timelines = raw_alloc_array_zero(Timeline, state.timeline_count);
-
-         i64 timeline_index = 0;
          for (auto block = state.profile_file_list.first; block; block = block->next) {
             for (int i = 0; i < block->count; i++) {
                File *file = block->files + i;
 
                if (file->type == FILE_TYPE_FILE) {
-                  String path = str_print(&ctx->temp, "%.*s/%.*s", str_prt(state.watch_path), str_prt(file->name));
-                  if (tm_read_file_header(state.timelines + timeline_index, path.data)) {
-                     timeline_index++;
+                  if (!ht_exist(&state.timelines_table, file->name)) {
+                     String path = str_print(&ctx->temp, "%.*s/%.*s", str_prt(state.watch_path), str_prt(file->name));
+                     ht_add(&state.timelines_table, str_copy(&state.memory, file->name), nullptr);
+
+                     Timeline* timeline = arl_push(&state.timelines);
+                     if (!tm_read_file_header(timeline, path.data)) arl_pop(&state.timelines);
                   }
                }
             }
          }
-
-         state.timeline_count = timeline_index;
       }
    } else {
       state.watch_panel_open = false;
@@ -621,7 +600,7 @@ void update(UIContext *ctx, cairo_t *cr) {
 
    cairo_set_line_width(cr, 1.0);
 
-   if (timeline) timeline_update(ctx, cr, timeline, Rect(timeline_view_x, 0, timeline_view_width, ctx->height));
+   if (state.active_timeline) timeline_update(ctx, cr, state.active_timeline, Rect(timeline_view_x, 0, timeline_view_width, ctx->height));
 
    if (state.watch_panel_open) timeline_update_runs(ctx, cr, Rect(0, 0, (i32)state.watch_panel_width, ctx->height));
 
@@ -697,5 +676,9 @@ void switch_timeline(Timeline *timeline) {
    if (timeline->header_only) {
       tm_read_file(timeline, timeline->filename.data);
    }
+
+   state.draw_start_time = timeline->start_time;
+   state.draw_time_width = timeline->end_time - timeline->start_time;
+
    tm_calculate_statistics(timeline, &state.selection_statistics, 0, timeline->end_time);
 }

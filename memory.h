@@ -19,8 +19,11 @@ struct MemoryArenaBlock {
 };
 
 struct MemoryArena {
-   size_t min_block_size = 8 * 1024 - sizeof(MemoryArenaBlock);
-   MemoryArenaBlock *block = nullptr;
+   size_t min_block_size;
+   i64 block_count;
+   i64 free_block_count;
+   MemoryArenaBlock *block;
+   MemoryArenaBlock *free_block;
 };
 
 struct TempSection {
@@ -29,17 +32,19 @@ struct TempSection {
    size_t mark;
 };
 
-void arena_init(MemoryArena *arena);
+void arena_clear(MemoryArena *arena);
 void arena_destroy(MemoryArena *arena);
 void arena_stats(MemoryArena *arena, u64* allocated_ptr, u64* used_ptr);
 
 TempSection begin_temp_section(MemoryArena *arena);
 void end_temp_section(TempSection section);
 
+void add_freed_block(MemoryArena *arena, MemoryArenaBlock* block);
 void alloc_block(MemoryArena *arena, size_t size);
-void *alloc_size_(MemoryArena *arena, size_t size);
+void *alloc_size(MemoryArena *arena, size_t size);
+void *alloc_size_zero(MemoryArena *arena, size_t size);
 
-#define alloc_size(arena, size) (alloc_size_(arena, size))
-#define alloc_type(arena, type) ((type*)alloc_size_(arena, sizeof(type)))
-#define alloc_array(arena, type, count) ((type*)alloc_size_(arena, sizeof(type) * (count)))
-#define alloc_zstring(arena, size) ((char *)alloc_size_(arena, size + 1))
+#define alloc_type(arena, type) ((type*)alloc_size(arena, sizeof(type)))
+#define alloc_type_zero(arena, type) ((type*)alloc_size_zero(arena, sizeof(type)))
+#define alloc_array(arena, type, count) ((type*)alloc_size(arena, sizeof(type) * (count)))
+#define alloc_zstring(arena, size) ((char *)alloc_size(arena, size + 1))

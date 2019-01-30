@@ -17,8 +17,6 @@ void ui_run(void (*update)(UIContext *, cairo_t *)) {
       ui_context.height = 480;
       ui_context.dirty = true;
 
-      arena_init(&ui_context.temp);
-
       window = SDL_CreateWindow("Tacho", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, ui_context.width, ui_context.height,
             SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
 
@@ -153,7 +151,7 @@ irect ui_scrollable_begin(const char *name, i32rect rect, i32vec2 content, i32 s
 
    auto scrollable = (UIScrollable*)ht_find(&ui_context.scrollables, (void*)name);
    if (!scrollable) {
-      scrollable = alloc_type(&ui_context.permenant, UIScrollable);
+      scrollable = alloc_type(&ui_context.permanent, UIScrollable);
       ht_add(&ui_context.scrollables, (void*)name, (void*)scrollable);
    }
 

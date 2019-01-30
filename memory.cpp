@@ -8,7 +8,18 @@
 #include "memory.h"
 #include "util.h"
 
-void arena_init(MemoryArena *arena) {
+void arena_clear(MemoryArena *arena) {
+   auto block = arena->block;
+
+   while (block) {
+      auto prev = block->prev;
+      block->prev = arena->free_block;
+      arena->free_block = block;
+      block = prev;
+   }
+
+   arena->free_block_count += arena->block_count;
+   arena->block_count = 0;
    arena->block = nullptr;
 }
 
@@ -16,12 +27,10 @@ void arena_destroy(MemoryArena *arena) {
    auto block = arena->block;
 
    while (block) {
-      void* mem = block;
+      void *mem = block;
       block = block->prev;
-      free(mem);
+      raw_free(mem);
    }
-
-   arena->block = nullptr;
 }
 
 void arena_stats(MemoryArena *arena, u64 *allocated_ptr, u64 *used_ptr) {
@@ -61,9 +70,11 @@ void end_temp_section(TempSection section) {
    while (arena->block != section.block) {
       assert(arena->block);
       assert(arena->block->temp_count == 1);
-      void* mem = arena->block;
+      MemoryArenaBlock* freed_block = arena->block;
       arena->block = arena->block->prev;
-      raw_free(mem);
+      arena->block_count--;
+
+      add_freed_block(arena, freed_block);
    }
    assert(arena->block == section.block);
 
@@ -71,26 +82,45 @@ void end_temp_section(TempSection section) {
    arena->block->temp_count--;
 }
 
-void alloc_block(MemoryArena *arena, size_t size) {
-   size_t required_size = arena->min_block_size > size ? arena->min_block_size : size;
-
-   size_t size_with_header = sizeof(MemoryArenaBlock) + required_size;
-   auto mem = raw_alloc_array_zero(u8, size_with_header);
-   assert(mem);
-
-   auto header = (MemoryArenaBlock *) mem;
-   header->data = mem + sizeof(MemoryArenaBlock);
-   header->size = required_size;
-
-   if (arena->block) {
-      header->temp_count = arena->block->temp_count;
-   }
-
-   header->prev = arena->block;
-   arena->block = header;
+void add_freed_block(MemoryArena *arena, MemoryArenaBlock* block) {
+   block->prev = arena->free_block;
+   arena->free_block = block;
+   arena->free_block_count++;
 }
 
-void *alloc_size_(MemoryArena *arena, size_t size) {
+void alloc_block(MemoryArena *arena, size_t size) {
+   if (arena->min_block_size == 0) arena->min_block_size = 8 * 1024 - sizeof(MemoryArenaBlock);
+
+   size_t required_size = arena->min_block_size > size ? arena->min_block_size : size;
+
+   MemoryArenaBlock* block = nullptr;
+
+   if (arena->free_block && arena->free_block->size >= required_size) {
+      block = arena->free_block;
+      arena->free_block = arena->free_block->prev;
+      block->used = 0;
+      arena->free_block_count--;
+   } else
+   {
+      size_t size_with_header = sizeof(MemoryArenaBlock) + required_size;
+      auto mem = raw_alloc_array_zero(u8, size_with_header);
+      assert(mem);
+
+      block = (MemoryArenaBlock *) mem;
+      block->data = mem + sizeof(MemoryArenaBlock);
+      block->size = required_size;
+   }
+
+   if (arena->block) {
+      block->temp_count = arena->block->temp_count;
+   }
+
+   block->prev = arena->block;
+   arena->block = block;
+   arena->block_count++;
+}
+
+void *alloc_size(MemoryArena *arena, size_t size) {
    if (!arena->block || (arena->block->used + size > arena->block->size)) {
       alloc_block(arena, size);
    }
@@ -99,5 +129,11 @@ void *alloc_size_(MemoryArena *arena, size_t size) {
    auto mem = arena->block->data + arena->block->used;
    arena->block->used += size;
 
+   return mem;
+}
+
+void *alloc_size_zero(MemoryArena *arena, size_t size) {
+   u8* mem = (u8*)alloc_size(arena, size);
+   for (size_t i = 0; i < size; i++) mem[i] = 0;
    return mem;
 }

@@ -44,5 +44,5 @@ void array_grow(Array<T>* array) {
 
    for (i64 index = 0; index < old_count; index++) array->data[index] = old_data[index];
 
-   free(old_data);
+   raw_free(old_data);
 }

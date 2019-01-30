@@ -35,7 +35,7 @@ struct DirectoryList {
 File file_stat(String name);
 
 void file_list_init(DirectoryList *list);
-void file_list_free(DirectoryList *list);
+void file_list_clear(DirectoryList *list);
 i64 file_list_count(DirectoryList *list);
 
 File *file_list_add(DirectoryList *list, FileType type, String name);

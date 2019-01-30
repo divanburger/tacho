@@ -19,6 +19,10 @@ String str_copy(MemoryArena *arena, const char *str) {
    return str_copy(arena, str, (int) strlen(str));
 }
 
+String str_copy(MemoryArena *arena, String str) {
+   return str_copy(arena, str.data, str.length);
+}
+
 String str_copy(MemoryArena *arena, const char *str, int length) {
    String result;
    result.length = length;
