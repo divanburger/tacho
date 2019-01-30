@@ -24,9 +24,9 @@ void arena_destroy(MemoryArena *arena) {
    arena->block = nullptr;
 }
 
-void arena_stats(MemoryArena *arena, uint64_t *allocated_ptr, uint64_t *used_ptr) {
-   uint64_t allocated = 0;
-   uint64_t used = 0;
+void arena_stats(MemoryArena *arena, u64 *allocated_ptr, u64 *used_ptr) {
+   u64 allocated = 0;
+   u64 used = 0;
 
    auto block = arena->block;
    while (block) {
@@ -75,7 +75,7 @@ void alloc_block(MemoryArena *arena, size_t size) {
    size_t required_size = arena->min_block_size > size ? arena->min_block_size : size;
 
    size_t size_with_header = sizeof(MemoryArenaBlock) + required_size;
-   auto mem = raw_alloc_array_zero(uint8_t, size_with_header);
+   auto mem = raw_alloc_array_zero(u8, size_with_header);
    assert(mem);
 
    auto header = (MemoryArenaBlock *) mem;

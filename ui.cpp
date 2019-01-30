@@ -3,93 +3,95 @@
 //
 
 #include "ui.h"
+#include "cairo_helpers.h"
 
-void ui_run(void (*update)(Context *, cairo_t *)) {
+UIContext ui_context = {};
+
+void ui_run(void (*update)(UIContext *, cairo_t *)) {
    if (SDL_Init(SDL_INIT_VIDEO) == 0) {
       SDL_Window *window = nullptr;
       SDL_Renderer *renderer = nullptr;
 
-      Context ctx = {};
-      ctx.running = true;
-      ctx.width = 640;
-      ctx.height = 480;
-      ctx.dirty = true;
+      ui_context.running = true;
+      ui_context.width = 640;
+      ui_context.height = 480;
+      ui_context.dirty = true;
 
-      arena_init(&ctx.temp);
+      arena_init(&ui_context.temp);
 
-      window = SDL_CreateWindow("Tacho", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, ctx.width, ctx.height,
+      window = SDL_CreateWindow("Tacho", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, ui_context.width, ui_context.height,
             SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
 
       if (window) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
 
       if (window && renderer) {
-         auto backbuffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, ctx.width,
-                                             ctx.height);
+         auto backbuffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, ui_context.width,
+                                             ui_context.height);
 
-         while (ctx.running) {
+         while (ui_context.running) {
             auto time_start = SDL_GetPerformanceCounter();
-            ctx.real_delta = (double) (time_start - ctx.time_counter) / SDL_GetPerformanceFrequency();
-            if (ctx.real_delta > 1.0) ctx.real_delta = 1.0;
+            ui_context.real_delta = (f64) (time_start - ui_context.time_counter) / SDL_GetPerformanceFrequency();
+            if (ui_context.real_delta > 1.0) ui_context.real_delta = 1.0;
 
-            auto old_mouse_pos = ctx.mouse_pos;
+            auto old_mouse_pos = ui_context.mouse_pos;
 
-            ctx.time_counter = time_start;
-            ctx.proc_time += ctx.real_delta;
+            ui_context.time_counter = time_start;
+            ui_context.proc_time += ui_context.real_delta;
 
-            ctx.mouse_delta = {};
-            ctx.mouse_delta_z = 0;
-            ctx.click_went_down = false;
-            ctx.click_went_up = false;
-            ctx.double_click = false;
+            ui_context.mouse_delta = {};
+            ui_context.mouse_delta_z = 0;
+            ui_context.click_went_down = false;
+            ui_context.click_went_up = false;
+            ui_context.f64_click = false;
 
             SDL_Event event;
             while (SDL_PollEvent(&event)) {
                switch (event.type) {
                   case SDL_QUIT: {
-                     ctx.running = false;
+                     ui_context.running = false;
                   }
                      break;
                   case SDL_MOUSEWHEEL: {
-                     ctx.mouse_delta_z += event.wheel.y;
-                     ctx.dirty = true;
+                     ui_context.mouse_delta_z += event.wheel.y;
+                     ui_context.dirty = true;
                   }
                      break;
                   case SDL_MOUSEMOTION: {
-                     ctx.mouse_pos = {event.motion.x, event.motion.y};
-                     ctx.dirty = true;
+                     ui_context.mouse_pos = {event.motion.x, event.motion.y};
+                     ui_context.dirty = true;
                   }
                      break;
                   case SDL_MOUSEBUTTONDOWN: {
-                     ctx.mouse_pos = {event.button.x, event.button.y};
-                     ctx.click_mouse_pos = ctx.mouse_pos;
-                     ctx.click = true;
-                     ctx.click_went_down = true;
-                     ctx.dirty = true;
+                     ui_context.mouse_pos = {event.button.x, event.button.y};
+                     ui_context.click_mouse_pos = ui_context.mouse_pos;
+                     ui_context.click = true;
+                     ui_context.click_went_down = true;
+                     ui_context.dirty = true;
                   }
                      break;
                   case SDL_MOUSEBUTTONUP: {
-                     ctx.mouse_pos = {event.button.x, event.button.y};
-                     ctx.click = false;
-                     ctx.click_went_up = true;
+                     ui_context.mouse_pos = {event.button.x, event.button.y};
+                     ui_context.click = false;
+                     ui_context.click_went_up = true;
 
-                     if (ctx.last_click >= ctx.proc_time - 0.3) {
-                        ctx.double_click = true;
+                     if (ui_context.last_click >= ui_context.proc_time - 0.3) {
+                        ui_context.f64_click = true;
                      }
-                     ctx.last_click = ctx.proc_time;
-                     ctx.dirty = true;
+                     ui_context.last_click = ui_context.proc_time;
+                     ui_context.dirty = true;
                   }
                      break;
                   case SDL_WINDOWEVENT: {
                      switch (event.window.event) {
                         case SDL_WINDOWEVENT_RESIZED:
                         case SDL_WINDOWEVENT_SIZE_CHANGED: {
-                           ctx.width = event.window.data1;
-                           ctx.height = event.window.data2;
+                           ui_context.width = event.window.data1;
+                           ui_context.height = event.window.data2;
 
                            SDL_DestroyTexture(backbuffer);
                            backbuffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
-                                                          SDL_TEXTUREACCESS_STREAMING, ctx.width, ctx.height);
-                           ctx.dirty = true;
+                                                          SDL_TEXTUREACCESS_STREAMING, ui_context.width, ui_context.height);
+                           ui_context.dirty = true;
 
                         }
                            break;
@@ -104,24 +106,24 @@ void ui_run(void (*update)(Context *, cairo_t *)) {
                }
             }
 
-            ctx.mouse_delta = ctx.mouse_pos - old_mouse_pos;
+            ui_context.mouse_delta = ui_context.mouse_pos - old_mouse_pos;
 
-            bool dirty = ctx.dirty;
-            if (ctx.dirty) {
-               ctx.dirty = false;
+            bool dirty = ui_context.dirty;
+            if (ui_context.dirty) {
+               ui_context.dirty = false;
 
                void *pixels;
                int pitch;
                SDL_LockTexture(backbuffer, nullptr, &pixels, &pitch);
-               auto cairo_surface = cairo_image_surface_create_for_data((uint8_t *) pixels, CAIRO_FORMAT_ARGB32,
-                                                                        ctx.width,
-                                                                        ctx.height, pitch);
-               ctx.cairo = cairo_create(cairo_surface);
+               auto cairo_surface = cairo_image_surface_create_for_data((u8 *) pixels, CAIRO_FORMAT_ARGB32,
+                                                                        ui_context.width,
+                                                                        ui_context.height, pitch);
+               ui_context.cairo = cairo_create(cairo_surface);
 
-               auto temp_section = begin_temp_section(&ctx.temp);
+               auto temp_section = begin_temp_section(&ui_context.temp);
 
-               update(&ctx, ctx.cairo);
-               cairo_destroy(ctx.cairo);
+               update(&ui_context, ui_context.cairo);
+               cairo_destroy(ui_context.cairo);
 
                end_temp_section(temp_section);
 
@@ -131,11 +133,11 @@ void ui_run(void (*update)(Context *, cairo_t *)) {
                SDL_RenderPresent(renderer);
             }
             auto time_end = SDL_GetPerformanceCounter();
-            auto time_taken = ((double) (time_end - time_start) / SDL_GetPerformanceFrequency());
+            auto time_taken = ((f64) (time_end - time_start) / SDL_GetPerformanceFrequency());
 //            printf("%1.6f\n", time_taken);
 
             auto wait_time = (int)((1000.0 / 100.0) - time_taken);
-            if (!dirty && !ctx.dirty && wait_time >= 1) SDL_Delay(wait_time);
+            if (!dirty && !ui_context.dirty && wait_time >= 1) SDL_Delay(wait_time);
          }
       }
 
@@ -144,4 +146,84 @@ void ui_run(void (*update)(Context *, cairo_t *)) {
    }
 
    SDL_Quit();
+}
+
+irect ui_scrollable_begin(const char *name, i32rect rect, i32vec2 content, i32 scroll_rate) {
+   auto cr = ui_context.cairo;
+
+   auto scrollable = (UIScrollable*)ht_find(&ui_context.scrollables, (void*)name);
+   if (!scrollable) {
+      scrollable = alloc_type(&ui_context.permenant, UIScrollable);
+      ht_add(&ui_context.scrollables, (void*)name, (void*)scrollable);
+   }
+
+   scrollable->rect = rect;
+   scrollable->content = content;
+   scrollable->hover = inside(rect, ui_context.mouse_pos);
+
+   if (scrollable->hover) {
+      scrollable->scroll -= ui_context.mouse_delta_z * scroll_rate;
+   }
+
+   i32 scroll_max = content.y - rect.h;
+   if (scrollable->scroll > scroll_max) scrollable->scroll = scroll_max;
+   if (scrollable->scroll < 0) scrollable->scroll = 0;
+
+   cairo_save(cr);
+   cairo_rectangle(cr, rect.x, rect.y, rect.w - 10, rect.h);
+   cairo_clip(cr);
+
+   return irect{rect.x, rect.y - scrollable->scroll, rect.w - 10, rect.h};
+}
+
+void ui_scrollable_end(const char *name) {
+   auto cr = ui_context.cairo;
+
+   auto scrollable = (UIScrollable*)ht_find(&ui_context.scrollables, (void*)name);
+   assert(scrollable);
+   cairo_restore(ui_context.cairo);
+
+   auto content = scrollable->content;
+   auto rect = scrollable->rect;
+
+   i32 track_w = 10;
+   i32 track_x = rect.x + rect.w - track_w;
+
+   bool hovered = (inside(Rect(track_x, rect.y, track_w, rect.h), ui_context.mouse_pos));
+
+   hovered ? cairo_set_source_rgb(cr, 0.3, 0.3, 0.3) : cairo_set_source_rgb(cr, 0.2, 0.2, 0.2);
+   cairo_rectangle(cr, track_x, rect.y, track_w, rect.h);
+   cairo_fill(cr);
+
+   i32 track_start = 11;
+   i32 track_height = rect.h - 22;
+
+   i32 scroll_max = content.y - rect.h;
+   f64 scroll_perc = min(content.y > 0 ? (f64)rect.h / content.y : 1.0, 1.0);
+   f64 scroll_height = track_height * scroll_perc;
+
+   if (hovered && ui_context.click) {
+      auto perc = ((ui_context.mouse_pos.y - rect.y - track_start - scroll_height * 0.5) / (track_height - scroll_height));
+      perc = clamp(perc, 0.0, 1.0);
+      scrollable->scroll = (i32)(perc * scroll_max);
+   }
+
+   f64 scroll_start = track_height * (1.0 - scroll_perc) * ((f64)scrollable->scroll / scroll_max);
+
+   cairo_set_source_rgb(cr, 0.5, 0.5, 0.5);
+   cairo_rectangle(cr, track_x + 2, rect.y + track_start + scroll_start, 6, scroll_height);
+   cairo_fill(cr);
+
+   cairo_set_source_rgb(cr, 0.8, 0.8, 0.8);
+   cairo_move_to(cr, track_x + 5, rect.y + 2);
+   cairo_line_to(cr, track_x + 2, rect.y + 8);
+   cairo_line_to(cr, track_x + 8, rect.y + 8);
+   cairo_close_path(cr);
+   cairo_fill(cr);
+
+   cairo_move_to(cr, track_x + 5, rect.y + rect.h - 2);
+   cairo_line_to(cr, track_x + 2, rect.y + rect.h - 8);
+   cairo_line_to(cr, track_x + 8, rect.y + rect.h - 8);
+   cairo_close_path(cr);
+   cairo_fill(cr);
 }

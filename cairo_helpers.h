@@ -4,11 +4,13 @@
 
 #pragma once
 
+#include "colour.h"
+
 inline void cairo_set_source_rgb(cairo_t *cr, Colour c) {
    cairo_set_source_rgb(cr, c.r, c.g, c.b);
 }
 
-inline void cairo_set_source_rgba(cairo_t *cr, Colour c, double alpha) {
+inline void cairo_set_source_rgba(cairo_t *cr, Colour c, f64 alpha) {
    cairo_set_source_rgba(cr, c.r, c.g, c.b, alpha);
 }
 

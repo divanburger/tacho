@@ -6,10 +6,12 @@
 
 #include <cstdint>
 
+#include "types.h"
+
 template<typename T>
 struct Array {
-   int64_t count;
-   int64_t capacity;
+   i64 count;
+   i64 capacity;
    T *data;
 };
 
@@ -40,7 +42,7 @@ void array_grow(Array<T>* array) {
    array->capacity = min(array->capacity * 2, 8);
    array->data = ((T *) raw_alloc_size(sizeof(T) * array->capacity));
 
-   for (int64_t index = 0; index < old_count; index++) array->data[index] = old_data[index];
+   for (i64 index = 0; index < old_count; index++) array->data[index] = old_data[index];
 
    free(old_data);
 }

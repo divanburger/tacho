@@ -127,14 +127,14 @@ void strb_add(StringBuilder *sb, char c) {
 }
 
 void strb_add(StringBuilder *sb, const char *str) {
-   strb_add(sb, str, (int32_t)strlen(str));
+   strb_add(sb, str, (i32)strlen(str));
 }
 
 void strb_add(StringBuilder *sb, String str) {
    strb_add(sb, str.data, str.length);
 }
 
-void strb_add(StringBuilder *sb, const char *str, int32_t size) {
+void strb_add(StringBuilder *sb, const char *str, i32 size) {
    assert(sb->length + size < sb->capacity - 1);
    memcpy(sb->buffer + sb->length, str, sizeof(char) * size);
    sb->length += size;

@@ -7,13 +7,15 @@
 #include <cstdint>
 #include <cstdlib>
 
+#include "types.h"
+
 struct MemoryArenaBlock {
    size_t used;
    size_t size;
    MemoryArenaBlock *prev;
 
-   uint8_t temp_count;
-   uint8_t *data;
+   u8 temp_count;
+   u8 *data;
 };
 
 struct MemoryArena {
@@ -29,7 +31,7 @@ struct TempSection {
 
 void arena_init(MemoryArena *arena);
 void arena_destroy(MemoryArena *arena);
-void arena_stats(MemoryArena *arena, uint64_t* allocated_ptr, uint64_t* used_ptr);
+void arena_stats(MemoryArena *arena, u64* allocated_ptr, u64* used_ptr);
 
 TempSection begin_temp_section(MemoryArena *arena);
 void end_temp_section(TempSection section);

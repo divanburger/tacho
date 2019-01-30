@@ -88,8 +88,8 @@ void file_read_directory(DirectoryList *list, String path) {
    }
 }
 
-int64_t file_list_count(DirectoryList *list) {
-   int64_t total = 0;
+i64 file_list_count(DirectoryList *list) {
+   i64 total = 0;
    for (DirectoryBlock* block = list->first; block; block = block->next) {
       total += block->count;
    }

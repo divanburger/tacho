@@ -9,18 +9,19 @@
 
 #include "memory.h"
 #include "math.h"
+#include "hash_table.h"
 
-struct Context {
-   cairo_t* cairo;
+struct UIContext {
+   cairo_t *cairo;
 
    bool running;
    bool dirty;
    int width;
    int height;
 
-   uint64_t time_counter;
-   double real_delta;
-   double proc_time;
+   u64 time_counter;
+   f64 real_delta;
+   f64 proc_time;
 
    i32vec2 mouse_delta;
    int mouse_delta_z;
@@ -31,10 +32,26 @@ struct Context {
    bool click;
    bool click_went_up;
    bool click_went_down;
-   bool double_click;
-   double last_click;
+   bool f64_click;
+   f64 last_click;
 
    MemoryArena temp;
+   MemoryArena permenant;
+
+   HashTable scrollables;
 };
 
-void ui_run(void (*update)(Context *, cairo_t *));
+extern UIContext ui_context;
+
+struct UIScrollable {
+   i32 scroll;
+   i32rect rect;
+   i32vec2 content;
+   bool hover;
+};
+
+void ui_run(void (*update)(UIContext *, cairo_t *));
+
+irect ui_scrollable_begin(const char *name, i32rect rect, i32vec2 content, i32 scroll_rate = 30);
+void ui_scrollable_end(const char *name);
+

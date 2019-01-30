@@ -9,34 +9,36 @@
 #include <xmmintrin.h>
 #include <wmmintrin.h>
 #include <smmintrin.h>
+
 #include "util.h"
+#include "types.h"
 
 struct HashTableSlot {
-   uint64_t key;
-   uint64_t hash;
+   u64 key;
+   u64 hash;
 };
 
 struct HashTable {
-   int32_t pow2_size;
-   int32_t size;
-   uint32_t hash_mask;
-   int32_t count;
+   i32 pow2_size;
+   i32 size;
+   u32 hash_mask;
+   i32 count;
    HashTableSlot *slots;
    void **items;
 };
 
 union HashValue {
    struct {
-      uint64_t i64[2];
+      u64 i64[2];
    };
    __m128i i128;
 };
 
-static const uint8_t hash_constant[16] = {0xe5, 0xbd, 0xe8, 0xe1, 0xd4, 0xf1, 0xfd, 0x75, 0xf1, 0x10, 0xbc, 0xce, 0x74,
+static const u8 hash_constant[16] = {0xe5, 0xbd, 0xe8, 0xe1, 0xd4, 0xf1, 0xfd, 0x75, 0xf1, 0x10, 0xbc, 0xce, 0x74,
                                           0xd4, 0x07, 0x5d};
 
-inline uint64_t ht_hash(uint64_t key) {
-   int64_t values[] = {(int64_t) key, (int64_t) key};
+inline u64 ht_hash(u64 key) {
+   i64 values[] = {(i64) key, (i64) key};
 
    __m128i constant = *(__m128i *) hash_constant;
    __m128i input = _mm_loadu_si128((__m128i *) values);
@@ -50,34 +52,34 @@ inline uint64_t ht_hash(uint64_t key) {
    return output.i64[0];
 }
 
-inline int32_t ht_count(HashTable *table) {
+inline i32 ht_count(HashTable *table) {
    return table->count;
 }
 
 
 void ht_init(HashTable *table);
-void *ht_find(HashTable *table, uint64_t key);
-void ht__add(HashTable *table, uint64_t key, uint64_t hash, void *entry);
+void *ht_find(HashTable *table, u64 key);
+void ht__add(HashTable *table, u64 key, u64 hash, void *entry);
 void ht_grow(HashTable *table);
-void ht_add(HashTable *table, uint64_t key, void *entry);
+void ht_add(HashTable *table, u64 key, void *entry);
 
 inline void *ht_find(HashTable *table, void *ptr_key) {
-   return ht_find(table, (uint64_t) ptr_key);
+   return ht_find(table, (u64) ptr_key);
 }
 
 inline void ht_add(HashTable *table, void *ptr_key, void *entry) {
-   ht_add(table, (uint64_t) ptr_key, entry);
+   ht_add(table, (u64) ptr_key, entry);
 }
 
-int32_t th_start_cursor(HashTable *table);
-bool th_valid_cursor(HashTable *table, int32_t cursor);
-int32_t th_step_cursor(HashTable *table, int32_t cursor);
+i32 th_start_cursor(HashTable *table);
+bool th_valid_cursor(HashTable *table, i32 cursor);
+i32 th_step_cursor(HashTable *table, i32 cursor);
 
-inline uint64_t th_key(HashTable *table, int32_t cursor) {
+inline u64 th_key(HashTable *table, i32 cursor) {
    return table->slots[cursor].key;
 }
 
-inline void *th_item(HashTable *table, int32_t cursor) {
+inline void *th_item(HashTable *table, i32 cursor) {
    return table->items[cursor];
 }
 

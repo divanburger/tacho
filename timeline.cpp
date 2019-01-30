@@ -9,15 +9,11 @@
 #include "util.h"
 
 void tm_init(Timeline *timeline) {
-   timeline->thread_count = 0;
-   timeline->start_time = 0;
-   timeline->end_time = 0;
-   timeline->method_table = {};
-   timeline->arena = {};
+   memset(timeline, 0, sizeof(Timeline));
    tm_grow_method_table(&timeline->method_table);
 }
 
-TimelineThread *tm_find_or_create_thread(Timeline *timeline, uint32_t thread_id, uint32_t fiber_id) {
+TimelineThread *tm_find_or_create_thread(Timeline *timeline, u32 thread_id, u32 fiber_id) {
    TimelineThread *thread = nullptr;
 
    for (int thread_index = 0; thread_index < timeline->thread_count; thread_index++) {
@@ -78,24 +74,24 @@ bool tm_read_file_header(Timeline *timeline, const char *filename) {
    char name_buffer[4096];
 
    while (!feof(input)) {
-      uint8_t type;
-      uint64_t time = 0;
+      u8 type;
+      u64 time = 0;
       size_t read = 0;
 
-      read = fread(&type, sizeof(uint8_t), 1, input);
+      read = fread(&type, sizeof(u8), 1, input);
       if (read != 1) {
          valid = false;
          break;
       }
-      read = fread(&time, sizeof(uint64_t) - sizeof(uint8_t), 1, input);
+      read = fread(&time, sizeof(u64) - sizeof(u8), 1, input);
       if (read != 1) {
          valid = false;
          break;
       }
 
       if (type == 'S') {
-         uint32_t name_length;
-         read = fread(&name_length, sizeof(uint32_t), 1, input);
+         u32 name_length;
+         read = fread(&name_length, sizeof(u32), 1, input);
          if (read != 1) {
             valid = false;
             break;
@@ -137,17 +133,17 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
       char method_buffer[4096];
 
       TimelineThread *thread = nullptr;
-      uint32_t thread_id = 0;
-      uint32_t fiber_id = 0;
+      u32 thread_id = 0;
+      u32 fiber_id = 0;
 
       while (!feof(input)) {
-         uint8_t type;
-         uint64_t time = 0;
-         uint32_t method_id = 0;
+         u8 type;
+         u64 time = 0;
+         u32 method_id = 0;
 
-         fread(&type, sizeof(uint8_t), 1, input);
+         fread(&type, sizeof(u8), 1, input);
          if (type != 'T') {
-            fread(&time, sizeof(uint64_t) - sizeof(uint8_t), 1, input);
+            fread(&time, sizeof(u64) - sizeof(u8), 1, input);
          }
 
          if (type == 'C') {
@@ -189,7 +185,7 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
             thread_info->stack_index++;
             assert(thread_info->stack_index < array_size(thread_info->stack));
          } else if (type == 'R') {
-            fread(&method_id, sizeof(uint32_t), 1, input);
+            fread(&method_id, sizeof(u32), 1, input);
 
             if (!thread) thread = tm_find_or_create_thread(timeline, 0, 0);
             ThreadInfo *thread_info = thread_infos + thread->index;
@@ -241,8 +237,8 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
             thread = tm_find_or_create_thread(timeline, thread_id, fiber_id);
 
          } else if (type == 'S') {
-            uint32_t name_length;
-            fread(&name_length, sizeof(uint32_t), 1, input);
+            u32 name_length;
+            fread(&name_length, sizeof(u32), 1, input);
 
             fread(&name_buffer, name_length, 1, input);
             timeline->name = str_copy(&timeline->arena, name_buffer, name_length);
@@ -275,10 +271,10 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
 
       thread->events = raw_alloc_array(TimelineEvent, thread->event_count);
 
-      int32_t stack[1024] = {};
-      int32_t stack_index = 0;
+      i32 stack[1024] = {};
+      i32 stack_index = 0;
 
-      int32_t event_index = 0;
+      i32 event_index = 0;
       for (auto chunk = thread_info->first; chunk; chunk = chunk->next) {
          for (int i = 0; i < chunk->entry_count; i++) {
             auto event = chunk->entries + i;
@@ -303,8 +299,8 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
    return true;
 }
 
-uint64_t tm_hash_call(String name, String path, int line_no) {
-   uint64_t result = (uint64_t) line_no * name.length * path.length;
+u64 tm_hash_call(String name, String path, int line_no) {
+   u64 result = (u64) line_no * name.length * path.length;
    if (result == 0) result = 1; // Hash may not be zero
    return result;
 }
@@ -314,9 +310,9 @@ TimelineMethod *tm_find_or_create_method(Timeline *timeline, String name, String
 
    auto table = &timeline->method_table;
 
-   uint64_t hash = tm_hash_call(name, path, line_no);
+   u64 hash = tm_hash_call(name, path, line_no);
 
-   for (int64_t i = 0; i < table->count; i++) {
+   for (i64 i = 0; i < table->count; i++) {
       if (table->hashes[i] == hash) {
          result = table->methods[i];
          if (result->line_no == line_no &&
@@ -353,11 +349,11 @@ void tm_grow_method_table(TimelineMethodTable *method_table) {
    method_table->capacity = method_table->capacity * 2;
    if (method_table->capacity < 64) method_table->capacity = 64;
 
-   method_table->hashes = raw_alloc_array_zero(uint64_t, method_table->capacity);
+   method_table->hashes = raw_alloc_array_zero(u64, method_table->capacity);
    method_table->methods = raw_alloc_array_zero(TimelineMethod*, method_table->capacity);
 
    if (old_methods) {
-      for (int64_t i = 0; i < method_table->count; i++) {
+      for (i64 i = 0; i < method_table->count; i++) {
          TimelineMethod *method = old_methods[i];
          method_table->hashes[i] = method->hash;
          method_table->methods[i] = method;
@@ -366,8 +362,8 @@ void tm_grow_method_table(TimelineMethodTable *method_table) {
    }
 }
 
-void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics, int64_t start_time, int64_t end_time,
-                             int32_t start_depth, MethodSortOrder order) {
+void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics, i64 start_time, i64 end_time,
+                             i32 start_depth, MethodSortOrder order) {
    statistics->time_span = end_time - start_time;
 
    MemoryArena arena;
@@ -378,20 +374,20 @@ void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics,
    ht_init(table);
 
    TimelineMethodStatistics *stack[1024];
-   int32_t stack_index = 0;
+   i32 stack_index = 0;
 
-   for (int16_t thread_index = 0; thread_index < timeline->thread_count; thread_index++) {
+   for (i16 thread_index = 0; thread_index < timeline->thread_count; thread_index++) {
       auto thread = timeline->threads + thread_index;
 
-      for (int32_t event_index = 0; event_index < thread->event_count; event_index++) {
+      for (i32 event_index = 0; event_index < thread->event_count; event_index++) {
          auto event = thread->events + event_index;
 
          if (event->depth < start_depth) continue;
          if (event->end_time < start_time) continue;
          if (event->start_time > end_time) continue;
 
-         int64_t clipped_start_time = start_time > event->start_time ? start_time : event->start_time;
-         int64_t clipped_end_time = event->end_time > end_time ? end_time : event->end_time;
+         i64 clipped_start_time = start_time > event->start_time ? start_time : event->start_time;
+         i64 clipped_end_time = event->end_time > end_time ? end_time : event->end_time;
 
          if (clipped_start_time < clipped_end_time) {
             auto method_statistics = (TimelineMethodStatistics *) ht_find(table, (void *) event->method);
@@ -405,11 +401,11 @@ void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics,
                ht_add(table, event->method, method_statistics);
             }
 
-            int64_t event_time = clipped_end_time - clipped_start_time;
+            i64 event_time = clipped_end_time - clipped_start_time;
 
             if (event->depth > start_depth) {
                // Within self
-               for (int32_t index = start_depth; index < event->depth; index++) {
+               for (i32 index = start_depth; index < event->depth; index++) {
                   if (stack[index] && stack[index]->method == event->method) {
                      method_statistics->total_time -= event_time;
                      method_statistics->child_time -= event_time;

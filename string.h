@@ -35,8 +35,8 @@ String as_string(char* str);
 //
 
 struct StringBuilder {
-   int32_t capacity;
-   int32_t length;
+   i32 capacity;
+   i32 length;
    char *buffer;
    MemoryArena* arena;
 };
@@ -49,4 +49,4 @@ void strb_print(StringBuilder *sb, const char *fmt, ...);
 void strb_add(StringBuilder *sb, char str);
 void strb_add(StringBuilder *sb, const char *str);
 void strb_add(StringBuilder *sb, String str);
-void strb_add(StringBuilder *sb, const char *str, int32_t size);
+void strb_add(StringBuilder *sb, const char *str, i32 size);
