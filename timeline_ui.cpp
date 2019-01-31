@@ -222,7 +222,7 @@ void timeline_chart_update(UIContext *ctx, cairo_t *cr, Timeline *timeline, i32r
          }
       }
 
-      draw_y += event_height * thread->deepest_level;
+      draw_y += thread_header_height + event_height * thread->deepest_level;
       if (draw_y > ctx->height) break;
    }
 
@@ -262,7 +262,7 @@ void timeline_chart_update(UIContext *ctx, cairo_t *cr, Timeline *timeline, i32r
       time = (i64) (time / draw_interval) * draw_interval;
 
       while (time <= state.draw_start_time + state.draw_time_width) {
-         f64 x = (time - state.draw_start_time) * width_scale;
+         f64 x = area.x + (time - state.draw_start_time) * width_scale;
          f64 rx = (i64) x + 0.5;
 
          cairo_set_source_rgb(cr, 0.9, 0.9, 0.9);
@@ -283,7 +283,7 @@ void timeline_chart_update(UIContext *ctx, cairo_t *cr, Timeline *timeline, i32r
          if (sub_draw_interval * width_scale > 40.0) {
             for (int i = 0; i < 9; i++) {
                time += sub_draw_interval;
-               x = (time - state.draw_start_time) * width_scale;
+               x = area.x + (time - state.draw_start_time) * width_scale;
                rx = (i64) x + 0.5;
 
                cairo_move_to(cr, rx, area.y);
