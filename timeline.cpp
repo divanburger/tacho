@@ -292,85 +292,49 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
    return true;
 }
 
-u64 tm_hash_call(String name, String path, int line_no) {
-   u64 result = (u64) line_no * name.length * path.length;
-   if (result == 0) result = 1; // Hash may not be zero
-   return result;
-}
-
 TimelineMethod *tm_find_or_create_method(Timeline *timeline, String name, String path, int line_no) {
    TimelineMethod *result;
 
    auto table = &timeline->method_table;
 
-   u64 hash = tm_hash_call(name, path, line_no);
+   TimelineMethod method;
+   method.path = path;
+   method.name = name;
+   method.line_no = line_no;
 
-   for (i64 i = 0; i < table->count; i++) {
-      if (table->hashes[i] == hash) {
-         result = table->methods[i];
-         if (result->line_no == line_no &&
-             str_equal(result->name, name) &&
-             str_equal(result->path, path)) {
-            return result;
-         }
-      }
-   }
-
-   if (table->count == table->capacity) {
-      tm_grow_method_table(table);
-   }
-   assert(table->count < table->capacity);
-
-   auto index = table->count++;
-   table->hashes[index] = hash;
+   result = (TimelineMethod*)ht_find(table, method);
+   if (result) return result;
 
    result = alloc_type(&timeline->arena, TimelineMethod);
-   table->methods[index] = result;
-
-   result->hash = hash;
-   result->line_no = line_no;
-   result->name = name;
-   result->path = path;
+   *result = method;
+   ht_add(table, method, result);
    return result;
 }
 
-void tm_grow_method_table(TimelineMethodTable *method_table) {
-   if (method_table->hashes) raw_free(method_table->hashes);
-
-   auto old_methods = method_table->methods;
-
-   method_table->capacity = method_table->capacity * 2;
-   if (method_table->capacity < 64) method_table->capacity = 64;
-
-   method_table->hashes = raw_alloc_array_zero(u64, method_table->capacity);
-   method_table->methods = raw_alloc_array_zero(TimelineMethod*, method_table->capacity);
-
-   if (old_methods) {
-      for (i64 i = 0; i < method_table->count; i++) {
-         TimelineMethod *method = old_methods[i];
-         method_table->hashes[i] = method->hash;
-         method_table->methods[i] = method;
-      }
-      raw_free(old_methods);
-   }
-}
-
 void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics, i64 start_time, i64 end_time,
-                             i32 start_depth, MethodSortOrder order) {
+                             i32 start_depth, i16 only_thread_index, MethodSortOrder order) {
    statistics->time_span = end_time - start_time;
 
    MemoryArena temp = {};
 
    arena_clear(&statistics->arena);
 
-   HashTable<void*> method_statistics_table = {};
+   HashTable<void *> method_statistics_table = {};
    auto table = &method_statistics_table;
    ht_init(table);
 
    TimelineMethodStatistics *stack[1024];
    i32 stack_index = 0;
 
-   for (i16 thread_index = 0; thread_index < timeline->thread_count; thread_index++) {
+   i16 thread_start = 0;
+   i16 thread_end = (i16)(timeline->thread_count - 1);
+
+   if (only_thread_index >= 0) {
+      thread_start = only_thread_index;
+      thread_end = only_thread_index;
+   }
+
+   for (i16 thread_index = thread_start; thread_index <= thread_end; thread_index++) {
       auto thread = timeline->threads + thread_index;
 
       for (i32 event_index = 0; event_index < thread->event_count; event_index++) {
@@ -384,7 +348,7 @@ void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics,
          i64 clipped_end_time = event->end_time > end_time ? end_time : event->end_time;
 
          if (clipped_start_time < clipped_end_time) {
-            auto method_statistics = (TimelineMethodStatistics *) ht_find(table, (void*)event->method);
+            auto method_statistics = (TimelineMethodStatistics *) ht_find(table, (void *) event->method);
             if (!method_statistics) {
                method_statistics = alloc_type(&temp, TimelineMethodStatistics);
                method_statistics->method = event->method;
@@ -392,7 +356,7 @@ void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics,
                method_statistics->self_time = 0;
                method_statistics->child_time = 0;
                method_statistics->calls = 0;
-               ht_add(table, (void*)event->method, method_statistics);
+               ht_add(table, (void *) event->method, method_statistics);
             }
 
             i64 event_time = clipped_end_time - clipped_start_time;
@@ -426,8 +390,6 @@ void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics,
       }
    }
 
-   statistics->calculated = true;
-
    statistics->method_count = table->count;
    statistics->method_statistics = alloc_array(&statistics->arena, TimelineMethodStatistics, table->count);
 
@@ -440,7 +402,11 @@ void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics,
 
    tm_sort_statistics(statistics, order);
 
+   arena_stats_print(&temp);
    arena_destroy(&temp);
+
+   arena_stats_print(&timeline->arena);
+   arena_stats_print(&statistics->arena);
 }
 
 void tm_sort_statistics(TimelineStatistics *statistics, MethodSortOrder order) {
@@ -492,4 +458,16 @@ void tm_sort_statistics(TimelineStatistics *statistics, MethodSortOrder order) {
 
    qsort(statistics->method_statistics, (size_t) statistics->method_count, sizeof(TimelineMethodStatistics),
          comparison_function);
+}
+
+u64 ht_hash(TimelineMethod method) {
+   u64 result = 17;
+   result = result * 31 + ht_hash(method.name);
+   result = result * 31 + ht_hash(method.path);
+   result = result * 31 + ht_hash((u64) method.line_no);
+   return result;
+}
+
+bool ht_key_eq(TimelineMethod a, TimelineMethod b) {
+   return a.line_no == b.line_no && str_equal(a.name, b.name) && str_equal(a.path, b.path);
 }

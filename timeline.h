@@ -10,10 +10,7 @@
 #include "hash_table.h"
 
 struct TimelineMethod {
-   u64 hash;
-
    u32 method_id;
-
    int line_no;
    String name;
    String path;
@@ -67,8 +64,6 @@ struct TimelineMethodTable {
 
    u64 *hashes;
    TimelineMethod **methods;
-
-   MemoryArena arena;
 };
 
 struct Timeline {
@@ -86,14 +81,11 @@ struct Timeline {
    String name;
    MemoryArena arena;
 
-   TimelineMethodTable method_table;
+   HashTable<TimelineMethod> method_table;
 };
 
 struct TimelineStatistics {
-   bool calculated;
-
    i64 time_span;
-
    i32 method_count;
    TimelineMethodStatistics *method_statistics;
    MemoryArena arena;
@@ -130,6 +122,9 @@ enum class MethodSortOrder : i8 {
    NONE
 };
 
+u64 ht_hash(TimelineMethod *method);
+bool ht_key_eq(TimelineMethod *a, TimelineMethod *b);
+
 bool tm_read_file_header(Timeline *timeline, const char *filename);
 
 bool tm_read_file(Timeline *timeline, const char *filename);
@@ -142,11 +137,7 @@ TimelineEvent *tm_push_event(ThreadInfo *thread_info);
 
 TimelineMethod *tm_find_or_create_method(Timeline *timeline, String name, String path, int line_no);
 
-void tm_grow_method_table(TimelineMethodTable *method_table);
-
-u64 tm_hash_call(TimelineEvent *call_entry);
-
 void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics, i64 start_time, i64 end_time,
-                             i32 start_depth = 0, MethodSortOrder order = MethodSortOrder::SELF_TIME);
+                             i32 start_depth = 0, i16 thread_index = -1, MethodSortOrder order = MethodSortOrder::SELF_TIME);
 
 void tm_sort_statistics(TimelineStatistics *statistics, MethodSortOrder order);

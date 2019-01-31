@@ -33,7 +33,7 @@ void arena_destroy(MemoryArena *arena) {
    }
 }
 
-void arena_stats(MemoryArena *arena, u64 *allocated_ptr, u64 *used_ptr) {
+void arena_stats_print_(MemoryArena *arena, const char* name) {
    u64 allocated = 0;
    u64 used = 0;
 
@@ -44,8 +44,25 @@ void arena_stats(MemoryArena *arena, u64 *allocated_ptr, u64 *used_ptr) {
       block = block->prev;
    }
 
-   *allocated_ptr = allocated;
-   *used_ptr = used;
+   printf("%s: allocated=", name);
+
+   if (allocated > 2097152)
+      printf("%.2fMB", allocated / 1048576.0);
+   else if (allocated > 2048)
+      printf("%.2fkB", allocated / 1024.0);
+   else
+      printf("%luB", allocated);
+
+   printf(", used=");
+
+   if (used > 2097152)
+      printf("%.2fMB", used / 1048576.0);
+   else if (used > 2048)
+      printf("%.2fkB", used / 1024.0);
+   else
+      printf("%luB", used);
+
+   printf(", used_blocks=%li, free_blocks=%li\n", arena->block_count, arena->free_block_count);
 }
 
 TempSection begin_temp_section(MemoryArena *arena) {
@@ -89,7 +106,7 @@ void add_freed_block(MemoryArena *arena, MemoryArenaBlock* block) {
 }
 
 void alloc_block(MemoryArena *arena, size_t size) {
-   if (arena->min_block_size == 0) arena->min_block_size = 8 * 1024 - sizeof(MemoryArenaBlock);
+   if (arena->min_block_size == 0) arena->min_block_size = 128 * 1024 - sizeof(MemoryArenaBlock);
 
    size_t required_size = arena->min_block_size > size ? arena->min_block_size : size;
 

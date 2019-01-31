@@ -34,7 +34,9 @@ struct TempSection {
 
 void arena_clear(MemoryArena *arena);
 void arena_destroy(MemoryArena *arena);
-void arena_stats(MemoryArena *arena, u64* allocated_ptr, u64* used_ptr);
+void arena_stats_print_(MemoryArena *arena, const char* name);
+
+#define arena_stats_print(arena) arena_stats_print_(arena, #arena)
 
 TempSection begin_temp_section(MemoryArena *arena);
 void end_temp_section(TempSection section);

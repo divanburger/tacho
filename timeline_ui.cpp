@@ -41,6 +41,8 @@ String timeline_full_time_str(MemoryArena *arena, i64 time) {
 }
 
 void timeline_chart_update(UIContext *ctx, cairo_t *cr, Timeline *timeline, i32rect area) {
+   if (area.w <= 0) return;
+
    Colour chart_background = Colour{0.1, 0.1, 0.1};
 
    char buffer[4096];
@@ -68,8 +70,8 @@ void timeline_chart_update(UIContext *ctx, cairo_t *cr, Timeline *timeline, i32r
 
    if (ctx->click) {
       state.draw_start_time = (i64) (state.click_draw_start_time +
-                                         ((ctx->click_mouse_pos.x - ctx->mouse_pos.x) * state.draw_time_width) /
-                                         area.w);
+                                     ((ctx->click_mouse_pos.x - ctx->mouse_pos.x) * state.draw_time_width) /
+                                     area.w);
       state.draw_y = (i64) (state.click_draw_y + (ctx->click_mouse_pos.y - ctx->mouse_pos.y));
    }
 
@@ -127,6 +129,7 @@ void timeline_chart_update(UIContext *ctx, cairo_t *cr, Timeline *timeline, i32r
       cairo_show_text(cr, buffer);
 
       draw_y += thread_header_height;
+
 
       for (i64 event_index = 0; event_index < thread->event_count; event_index++) {
          TimelineEvent *event = thread->events + event_index;
@@ -236,7 +239,8 @@ void timeline_chart_update(UIContext *ctx, cairo_t *cr, Timeline *timeline, i32r
 
       tm_calculate_statistics(timeline, &state.selection_statistics,
                               state.active_event->start_time, state.active_event->end_time,
-                              state.active_event->depth, state.method_sort_order_active);
+                              state.active_event->depth, state.active_event->thread_index,
+                              state.method_sort_order_active);
    }
 
    // time axis
@@ -248,7 +252,6 @@ void timeline_chart_update(UIContext *ctx, cairo_t *cr, Timeline *timeline, i32r
       cairo_fill(cr);
 
       f64 interval_time = (state.draw_time_width / area.w) * 100.0;
-
       i64 draw_interval = 1;
 
       while (interval_time > 1.0) {
@@ -317,7 +320,8 @@ void timeline_methods_update(UIContext *ctx, cairo_t *cr, Timeline *timeline, i3
 
    // Methods
    irect table_inner_area = Rect(area.x, area.y + method_height, area.w, area.h - method_height);
-   auto scroll_area = ui_scrollable_begin("methods", table_inner_area, Vec(area.w, method_height * statistics->method_count));
+   auto scroll_area = ui_scrollable_begin("methods", table_inner_area,
+                                          Vec(area.w, method_height * statistics->method_count));
 
    i64 y = scroll_area.y;
 
@@ -499,7 +503,7 @@ void timeline_update_runs(UIContext *ctx, cairo_t *cr, irect area) {
    cairo_font_extents_t font_extents;
    cairo_font_extents(cr, &font_extents);
 
-   auto scroll_area = ui_scrollable_begin("runs", area, Vec(area.w, (i32)state.timelines.count * 30));
+   auto scroll_area = ui_scrollable_begin("runs", area, Vec(area.w, (i32) state.timelines.count * 30));
    i32 cur_y = scroll_area.y;
 
    cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
@@ -524,8 +528,7 @@ void timeline_update_runs(UIContext *ctx, cairo_t *cr, irect area) {
          cairo_set_source_rgb(cr, 0.3, 0.3, 0.3);
          cairo_rectangle(cr, Rect(scroll_area.x, cur_y, scroll_area.w, 30));
          cairo_fill(cr);
-      }
-      else if (state.highlighted_timeline == timeline) {
+      } else if (state.highlighted_timeline == timeline) {
          cairo_set_source_rgb(cr, 0.2, 0.2, 0.2);
          cairo_rectangle(cr, Rect(scroll_area.x, cur_y, scroll_area.w, 30));
          cairo_fill(cr);
@@ -578,7 +581,7 @@ void update(UIContext *ctx, cairo_t *cr) {
                      String path = str_print(&ctx->temp, "%.*s/%.*s", str_prt(state.watch_path), str_prt(file->name));
                      ht_add(&state.timelines_table, str_copy(&state.memory, file->name), nullptr);
 
-                     Timeline* timeline = arl_push(&state.timelines);
+                     Timeline *timeline = arl_push(&state.timelines);
                      if (!tm_read_file_header(timeline, path.data)) arl_pop(&state.timelines);
                   }
                }
@@ -600,9 +603,10 @@ void update(UIContext *ctx, cairo_t *cr) {
 
    cairo_set_line_width(cr, 1.0);
 
-   if (state.active_timeline) timeline_update(ctx, cr, state.active_timeline, Rect(timeline_view_x, 0, timeline_view_width, ctx->height));
+   if (state.active_timeline)
+      timeline_update(ctx, cr, state.active_timeline, Rect(timeline_view_x, 0, timeline_view_width, ctx->height));
 
-   if (state.watch_panel_open) timeline_update_runs(ctx, cr, Rect(0, 0, (i32)state.watch_panel_width, ctx->height));
+   if (state.watch_panel_open) timeline_update_runs(ctx, cr, Rect(0, 0, (i32) state.watch_panel_width, ctx->height));
 
    //
    // Tooltip
