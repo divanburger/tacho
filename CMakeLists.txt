@@ -12,3 +12,7 @@ include_directories(${SDL2_INCLUDE_DIRS})
 add_executable(tacho main.cpp string.cpp timeline.cpp memory.cpp files.cpp ui.cpp hash_table.cpp hash_table.h timeline_ui.cpp timeline_ui.h array.cpp array.h)
 
 target_link_libraries(tacho ${SDL2_LIBRARIES} cairo)
+
+add_executable(output_label output_label.cpp)
+
+target_link_libraries(output_label)
