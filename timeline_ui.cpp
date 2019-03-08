@@ -163,8 +163,17 @@ void timeline_chart_update(UIContext *ctx, cairo_t *cr, Timeline *timeline, i32r
             Colour background = {0.33, 0.67, 1.00};
             Colour text_colour = {0.9, 0.9, 0.9};
 
-            if (event->method == state.active_method) {
+            if (event->type == EVENT_METHOD_CALL && event->method == state.active_method) {
                background = {1.0, 0.67, 0.33};
+            } else if (event->type == EVENT_SECTION) {
+               background = {0.67, 1.0, 0.33};
+            }
+
+            if (event->type == EVENT_METHOD_CALL) {
+               TimelineMethod *method = event->method;
+               if (!str_start_with(method->path, const_as_string("/home/divan/workspace-cc-"))) {
+                  background = {0.67, 1.0, 0.33};
+               }
             }
 
             if (event == state.active_event) {
@@ -195,16 +204,29 @@ void timeline_chart_update(UIContext *ctx, cairo_t *cr, Timeline *timeline, i32r
                cairo_rectangle(cr, text_x, y0, text_w, 15);
                cairo_clip(cr);
 
-               TimelineMethod *method = event->method;
+               if (event->type == EVENT_METHOD_CALL) {
+                  TimelineMethod *method = event->method;
 
-               cairo_text_extents_t extents;
-               cairo_text_extents(cr, method->name.data, &extents);
+                  cairo_text_extents_t extents;
+                  cairo_text_extents(cr, method->name.data, &extents);
 
-               cairo_set_source_rgb(cr, text_colour);
-               cairo_move_to(cr, text_x, y0 + font_extents.ascent);
-               cairo_show_text(cr, method->name.data);
+                  cairo_set_source_rgb(cr, text_colour);
+                  cairo_move_to(cr, text_x, y0 + font_extents.ascent);
+                  cairo_show_text(cr, method->name.data);
 
-               text_x += extents.x_advance + 4.0;
+                  text_x += extents.x_advance + 4.0;
+               } else if (event->type == EVENT_SECTION) {
+                  if (str_nonblank(event->section_name)) {
+                     cairo_text_extents_t extents;
+                     cairo_text_extents(cr, event->section_name.data, &extents);
+
+                     cairo_set_source_rgb(cr, text_colour);
+                     cairo_move_to(cr, text_x, y0 + font_extents.ascent);
+                     cairo_show_text(cr, event->section_name.data);
+
+                     text_x += extents.x_advance + 4.0;
+                  }
+               }
 
                String time_str = timeline_scaled_time_str(&ctx->temp, event->end_time - event->start_time);
 
@@ -644,24 +666,28 @@ void update(UIContext *ctx, cairo_t *cr) {
 
       if (state.highlighted_event) {
          auto event = state.highlighted_event;
-         method = event->method;
+         if (event->type == EVENT_METHOD_CALL) {
+            method = event->method;
+         }
       } else if (state.highlighted_method) {
          method = state.highlighted_method;
       }
 
-      String line = method->name;
-      cairo_move_to(cr, x + 6, y + font_extents.ascent);
-      cairo_show_text(cr, line.data);
-      cairo_text_extents(cr, line.data, &text_extents);
-      w = (w < text_extents.width) ? text_extents.width : w;
-      y += font_extents.height;
+      if (method) {
+         String line = method->name;
+         cairo_move_to(cr, x + 6, y + font_extents.ascent);
+         cairo_show_text(cr, line.data);
+         cairo_text_extents(cr, line.data, &text_extents);
+         w = (w < text_extents.width) ? text_extents.width : w;
+         y += font_extents.height;
 
-      line = str_print(&ctx->temp, "%.*s:%i", str_prt(method->path), method->line_no);
-      cairo_move_to(cr, x + 6, y + font_extents.ascent);
-      cairo_show_text(cr, line.data);
-      cairo_text_extents(cr, line.data, &text_extents);
-      w = (w < text_extents.width) ? text_extents.width : w;
-      y += font_extents.height;
+         line = str_print(&ctx->temp, "%.*s:%i", str_prt(method->path), method->line_no);
+         cairo_move_to(cr, x + 6, y + font_extents.ascent);
+         cairo_show_text(cr, line.data);
+         cairo_text_extents(cr, line.data, &text_extents);
+         w = (w < text_extents.width) ? text_extents.width : w;
+         y += font_extents.height;
+      }
 
       state.tooltip_w = w + 12;
       state.tooltip_h = y - sy + 8;

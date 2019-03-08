@@ -9,6 +9,11 @@
 #include "string.h"
 #include "hash_table.h"
 
+enum EventType : i16 {
+   EVENT_METHOD_CALL,
+   EVENT_SECTION
+};
+
 struct TimelineMethod {
    u32 method_id;
    int line_no;
@@ -29,12 +34,17 @@ struct TimelineEvent {
    i64 start_time;
    i64 end_time;
 
-   TimelineMethod *method;
-
    i16 thread_index;
    i16 depth;
 
    i32 next_sibling_index;
+
+   EventType type;
+
+   union {
+      TimelineMethod *method;
+      String section_name;
+   };
 };
 
 struct TimelineEventChunk {
@@ -123,6 +133,7 @@ enum class MethodSortOrder : i8 {
 };
 
 u64 ht_hash(TimelineMethod *method);
+
 bool ht_key_eq(TimelineMethod *a, TimelineMethod *b);
 
 bool tm_read_file_header(Timeline *timeline, const char *filename);
@@ -138,6 +149,7 @@ TimelineEvent *tm_push_event(ThreadInfo *thread_info);
 TimelineMethod *tm_find_or_create_method(Timeline *timeline, String name, String path, int line_no);
 
 void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics, i64 start_time, i64 end_time,
-                             i32 start_depth = 0, i16 thread_index = -1, MethodSortOrder order = MethodSortOrder::SELF_TIME);
+                             i32 start_depth = 0, i16 thread_index = -1,
+                             MethodSortOrder order = MethodSortOrder::SELF_TIME);
 
 void tm_sort_statistics(TimelineStatistics *statistics, MethodSortOrder order);

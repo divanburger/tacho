@@ -23,6 +23,7 @@ String str_copy(MemoryArena *arena, const char* str);
 String str_copy(MemoryArena *arena, String str);
 
 bool str_equal(String a, String b);
+bool str_start_with(String a, String b);
 int str_cmp(String a, String b);
 
 String str_print(MemoryArena *arena, const char *fmt, ...);

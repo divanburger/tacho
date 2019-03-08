@@ -41,6 +41,11 @@ bool str_equal(String a, String b) {
    return (strncmp(a.data, b.data, (size_t)a.length) == 0);
 }
 
+bool str_start_with(String a, String b) {
+   if (a.length < b.length) return false;
+   return (strncmp(a.data, b.data, (size_t)b.length) == 0);
+}
+
 int str_cmp(String a, String b) {
    auto prefix_length = min(a.length, b.length);
    if (prefix_length == 0) return b.length - a.length;

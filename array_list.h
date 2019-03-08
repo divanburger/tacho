@@ -4,6 +4,11 @@
 
 #pragma once
 
+#include <cassert>
+
+#include "types.h"
+#include "util.h"
+
 template<typename T>
 struct ArrayListBlock {
    T data[64];
@@ -104,7 +109,7 @@ bool arl_cursor_step(ArrayListCursor<T> *cursor) {
    if (!cursor->block) return false;
 
    cursor->index++;
-   if (cursor->index >= array_size(cursor->block->data)) {
+   if (cursor->index >= cursor->block->count) {
       cursor->block = cursor->block->next;
       cursor->index = 0;
    }

@@ -161,20 +161,21 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
             auto method = tm_find_or_create_method(timeline, name, path, call_body.line_no);
             method->method_id = call_body.method_id;
 
-            auto entry = tm_push_event(thread_info);
-            entry->method = method;
-            entry->depth = thread_info->stack_index;
-            entry->thread_index = thread->index;
-            entry->start_time = time;
+            auto event = tm_push_event(thread_info);
+            event->type = EVENT_METHOD_CALL;
+            event->method = method;
+            event->depth = thread_info->stack_index;
+            event->thread_index = thread->index;
+            event->start_time = time;
 
-            if (entry->depth > thread->deepest_level) {
-               thread->deepest_level = entry->depth;
+            if (event->depth > thread->deepest_level) {
+               thread->deepest_level = event->depth;
             }
 
             thread->event_count++;
 
             thread_info->last_time = time;
-            thread_info->stack[thread_info->stack_index] = entry;
+            thread_info->stack[thread_info->stack_index] = event;
             thread_info->stack_index++;
             assert(thread_info->stack_index < array_size(thread_info->stack));
          } else if (type == 'R') {
@@ -191,14 +192,14 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
                bool found = false;
                auto entry = thread_info->stack[stack_index];
 
-               if (entry->method->method_id != method_id) {
+               if (entry->type == EVENT_METHOD_CALL && entry->method->method_id != method_id) {
                   printf("Method ID mismatch : %i != %i : %.*s\n", entry->method->method_id, method_id,
                          str_prt(entry->method->name));
                }
 
                auto test_entry = entry;
                while (stack_index > 0) {
-                  if (test_entry->method->method_id == method_id) {
+                  if (test_entry->type == EVENT_METHOD_CALL && test_entry->method->method_id == method_id) {
                      found = true;
                      break;
                   }
@@ -209,12 +210,15 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
                if (found) {
                   thread_info->stack_index--;
 
-                  while (entry->method->method_id != method_id) {
+                  while (entry->type != EVENT_METHOD_CALL || entry->method->method_id != method_id) {
                      entry->end_time = thread_info->last_time;
 
                      thread_info->stack_index--;
                      entry = thread_info->stack[thread_info->stack_index];
-                     printf(" - Closed method %i : %.*s\n", entry->method->method_id, str_prt(entry->method->name));
+
+                     if (entry->type == EVENT_METHOD_CALL) {
+                        printf(" - Closed method %i : %.*s\n", entry->method->method_id, str_prt(entry->method->name));
+                     }
                   }
 
                   entry->end_time = time;
@@ -238,6 +242,45 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
          } else if (type == 'F') {
             timeline->end_time = time;
             break;
+         } else if (type == 'B') {
+            u32 name_length;
+            fread(&name_length, sizeof(u32), 1, input);
+
+            fread(&name_buffer, name_length, 1, input);
+
+            if (!thread) thread = tm_find_or_create_thread(timeline, 0, 0);
+            ThreadInfo *thread_info = thread_infos + thread->index;
+
+            auto event = tm_push_event(thread_info);
+            event->type = EVENT_SECTION;
+            event->section_name = str_copy(&timeline->arena, name_buffer, name_length);
+            event->depth = thread_info->stack_index;
+            event->thread_index = thread->index;
+            event->start_time = time;
+
+            if (event->depth > thread->deepest_level) {
+               thread->deepest_level = event->depth;
+            }
+
+            thread->event_count++;
+
+            thread_info->last_time = time;
+            thread_info->stack[thread_info->stack_index] = event;
+            thread_info->stack_index++;
+            assert(thread_info->stack_index < array_size(thread_info->stack));
+
+         } else if (type == 'E') {
+            if (!thread) thread = tm_find_or_create_thread(timeline, 0, 0);
+            ThreadInfo *thread_info = thread_infos + thread->index;
+
+            if (thread_info->stack_index > 0) {
+               thread_info->stack_index--;
+               thread_info->last_time = time;
+
+               auto entry = thread_info->stack[thread_info->stack_index];
+               entry->end_time = time;
+            }
+
          } else {
             printf("Unknown event type: '%c'\n", type);
             fclose(input);
@@ -302,7 +345,7 @@ TimelineMethod *tm_find_or_create_method(Timeline *timeline, String name, String
    method.name = name;
    method.line_no = line_no;
 
-   result = (TimelineMethod*)ht_find(table, method);
+   result = (TimelineMethod *) ht_find(table, method);
    if (result) return result;
 
    result = alloc_type(&timeline->arena, TimelineMethod);
@@ -327,7 +370,7 @@ void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics,
    i32 stack_index = 0;
 
    i16 thread_start = 0;
-   i16 thread_end = (i16)(timeline->thread_count - 1);
+   i16 thread_end = (i16) (timeline->thread_count - 1);
 
    if (only_thread_index >= 0) {
       thread_start = only_thread_index;
