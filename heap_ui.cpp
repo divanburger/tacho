@@ -104,22 +104,29 @@ void heap_update_linear(UIContext *ctx, cairo_t *cr, i32rect area) {
                if (slot) {
 
                   auto slot_colour = Colour{0.33, 0.67, 1.00};
-                  switch (slot->type) {
-                     case HO_ROOT:
-                     case HO_CLASS:
-                     case HO_MODULE:
-                     case HO_ICLASS:
-                     case HO_IMEMO:
-                        slot_colour = Colour{1.00, 0.33, 0.67};
-                        break;
-                     case HO_STRING:
-                        slot_colour = Colour{0.33, 1.00, 0.67};
-                        break;
-                     case HO_HASH:
+
+                  if (heap_state.slot_view == SLOT_VIEW_TYPE) {
+                     switch (slot->type) {
+                        case HO_ROOT:
+                        case HO_CLASS:
+                        case HO_MODULE:
+                        case HO_ICLASS:
+                        case HO_IMEMO:
+                           slot_colour = Colour{1.00, 0.33, 0.67};
+                           break;
+                        case HO_STRING:
+                           slot_colour = Colour{0.33, 1.00, 0.67};
+                           break;
+                        case HO_HASH:
+                           slot_colour = Colour{1.00, 0.67, 0.33};
+                           break;
+                        default:
+                           break;
+                     }
+                  } else if (heap_state.slot_view == SLOT_VIEW_OLD) {
+                     if (slot->flags & OBJFLAG_OLD) {
                         slot_colour = Colour{1.00, 0.67, 0.33};
-                        break;
-                     default:
-                        break;
+                     }
                   }
 
                   cairo_set_source_rgb(cr, slot_colour);
@@ -211,14 +218,20 @@ void heap_update(UIContext *ctx, cairo_t *cr) {
 
    heap_state.page_view = PAGE_VIEW_LINEAR;
 
+   if (ctx->key_went_up[SDL_SCANCODE_F1]) heap_state.page_view = PAGE_VIEW_LINEAR;
+   if (ctx->key_went_up[SDL_SCANCODE_F2]) heap_state.page_view = PAGE_VIEW_MAP;
+
+   if (ctx->key_went_up[SDL_SCANCODE_F5]) heap_state.slot_view = SLOT_VIEW_TYPE;
+   if (ctx->key_went_up[SDL_SCANCODE_F6]) heap_state.slot_view = SLOT_VIEW_OLD;
+
    auto area = Rect(0, 0, ctx->width - 400, ctx->height);
 
    switch (heap_state.page_view) {
-      case PAGE_VIEW_MAP:
-         heap_update_map(ctx, cr);
-         break;
       case PAGE_VIEW_LINEAR:
          heap_update_linear(ctx, cr, area);
+         break;
+      case PAGE_VIEW_MAP:
+         heap_update_map(ctx, cr);
          break;
    }
 

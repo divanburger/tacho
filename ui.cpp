@@ -17,13 +17,15 @@ void ui_run(void (*update)(UIContext *, cairo_t *)) {
       ui_context.height = 480;
       ui_context.dirty = true;
 
-      window = SDL_CreateWindow("Tacho", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, ui_context.width, ui_context.height,
-            SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+      window = SDL_CreateWindow("Tacho", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, ui_context.width,
+                                ui_context.height,
+                                SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
 
       if (window) renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
 
       if (window && renderer) {
-         auto backbuffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, ui_context.width,
+         auto backbuffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING,
+                                             ui_context.width,
                                              ui_context.height);
 
          while (ui_context.running) {
@@ -41,6 +43,11 @@ void ui_run(void (*update)(UIContext *, cairo_t *)) {
             ui_context.click_went_down = false;
             ui_context.click_went_up = false;
             ui_context.f64_click = false;
+
+            for (i32 i = 0; i < MAX_KEYS; i++) {
+               ui_context.key_went_down[i] = false;
+               ui_context.key_went_up[i] = false;
+            }
 
             SDL_Event event;
             while (SDL_PollEvent(&event)) {
@@ -79,6 +86,18 @@ void ui_run(void (*update)(UIContext *, cairo_t *)) {
                      ui_context.dirty = true;
                   }
                      break;
+                  case SDL_KEYDOWN: {
+                     ui_context.key_down[event.key.keysym.scancode] = true;
+                     ui_context.key_went_down[event.key.keysym.scancode] = true;
+                     ui_context.dirty = true;
+                     break;
+                  }
+                  case SDL_KEYUP: {
+                     ui_context.key_down[event.key.keysym.scancode] = false;
+                     ui_context.key_went_up[event.key.keysym.scancode] = true;
+                     ui_context.dirty = true;
+                     break;
+                  }
                   case SDL_WINDOWEVENT: {
                      switch (event.window.event) {
                         case SDL_WINDOWEVENT_RESIZED:
@@ -88,7 +107,8 @@ void ui_run(void (*update)(UIContext *, cairo_t *)) {
 
                            SDL_DestroyTexture(backbuffer);
                            backbuffer = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
-                                                          SDL_TEXTUREACCESS_STREAMING, ui_context.width, ui_context.height);
+                                                          SDL_TEXTUREACCESS_STREAMING, ui_context.width,
+                                                          ui_context.height);
                            ui_context.dirty = true;
 
                         }
@@ -134,7 +154,7 @@ void ui_run(void (*update)(UIContext *, cairo_t *)) {
             auto time_end = SDL_GetPerformanceCounter();
             auto time_taken = ((f64) (time_end - time_start) / SDL_GetPerformanceFrequency());
 
-            auto wait_time = (int)(1000.0 / 60.0 - time_taken * 1000.0);
+            auto wait_time = (int) (1000.0 / 60.0 - time_taken * 1000.0);
 //            printf("%1.6f - %6i\n", time_taken, wait_time);
             if (!dirty && !ui_context.dirty && wait_time >= 1) SDL_Delay(wait_time);
          }
@@ -150,10 +170,10 @@ void ui_run(void (*update)(UIContext *, cairo_t *)) {
 irect ui_scrollable_begin(const char *name, i32rect rect, i32vec2 content, i32 scroll_rate) {
    auto cr = ui_context.cairo;
 
-   auto scrollable = (UIScrollable*)ht_find(&ui_context.scrollables, (void*)name);
+   auto scrollable = (UIScrollable *) ht_find(&ui_context.scrollables, (void *) name);
    if (!scrollable) {
       scrollable = alloc_type(&ui_context.permanent, UIScrollable);
-      ht_add(&ui_context.scrollables, (void*)name, (void*)scrollable);
+      ht_add(&ui_context.scrollables, (void *) name, (void *) scrollable);
    }
 
    scrollable->rect = rect;
@@ -178,7 +198,7 @@ irect ui_scrollable_begin(const char *name, i32rect rect, i32vec2 content, i32 s
 void ui_scrollable_end(const char *name) {
    auto cr = ui_context.cairo;
 
-   auto scrollable = (UIScrollable*)ht_find(&ui_context.scrollables, (void*)name);
+   auto scrollable = (UIScrollable *) ht_find(&ui_context.scrollables, (void *) name);
    assert(scrollable);
    cairo_restore(ui_context.cairo);
 
@@ -198,16 +218,17 @@ void ui_scrollable_end(const char *name) {
    i32 track_height = rect.h - 22;
 
    i32 scroll_max = content.y - rect.h;
-   f64 scroll_perc = min(content.y > 0 ? (f64)rect.h / content.y : 1.0, 1.0);
+   f64 scroll_perc = min(content.y > 0 ? (f64) rect.h / content.y : 1.0, 1.0);
    f64 scroll_height = track_height * scroll_perc;
 
    if (hovered && ui_context.click) {
-      auto perc = ((ui_context.mouse_pos.y - rect.y - track_start - scroll_height * 0.5) / (track_height - scroll_height));
+      auto perc = ((ui_context.mouse_pos.y - rect.y - track_start - scroll_height * 0.5) /
+                   (track_height - scroll_height));
       perc = clamp(perc, 0.0, 1.0);
-      scrollable->scroll = (i32)(perc * scroll_max);
+      scrollable->scroll = (i32) (perc * scroll_max);
    }
 
-   f64 scroll_start = track_height * (1.0 - scroll_perc) * ((f64)scrollable->scroll / scroll_max);
+   f64 scroll_start = track_height * (1.0 - scroll_perc) * ((f64) scrollable->scroll / scroll_max);
 
    cairo_set_source_rgb(cr, 0.5, 0.5, 0.5);
    cairo_rectangle(cr, track_x + 2, rect.y + track_start + scroll_start, 6, scroll_height);

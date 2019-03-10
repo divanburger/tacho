@@ -11,6 +11,8 @@
 #include "math.h"
 #include "hash_table.h"
 
+#define MAX_KEYS 512
+
 struct UIScrollable {
    i32 scroll;
    i32rect rect;
@@ -41,6 +43,10 @@ struct UIContext {
    bool click_went_down;
    bool f64_click;
    f64 last_click;
+
+   bool key_down[MAX_KEYS];
+   bool key_went_down[MAX_KEYS];
+   bool key_went_up[MAX_KEYS];
 
    MemoryArena temp;
    MemoryArena permanent;

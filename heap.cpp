@@ -145,6 +145,8 @@ HeapLocation heap_find_object(Heap *heap, u64 address) {
 }
 
 bool heap_read_object(HeapReader *reader, const char *str, Allocator *allocator) {
+   reader->object = {};
+
    JsonParser parser = {};
    parser.user_data = reader;
    parser.on_key = heap_on_key;
