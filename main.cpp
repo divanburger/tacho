@@ -92,9 +92,10 @@ int main(int argc, char **args) {
          return 1;
       }
 
-      Heap heap;
+      Heap heap = {};
       heap_read(&heap, args[2]);
 
+      heap_state.heap = &heap;
       ui_run(heap_update);
 
    } else {

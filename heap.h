@@ -6,28 +6,90 @@
 
 #include "types.h"
 #include "memory.h"
+#include "allocator.h"
+#include "array_list.h"
+#include "hash_table.h"
 
 enum ObjectType {
-   UNKNOWN,
-   STRING,
-   HASH,
-   ARRAY,
-   OBJECT
+   HO_UNKNOWN,
+   HO_STRING,
+   HO_HASH,
+   HO_ARRAY,
+   HO_OBJECT,
+   HO_DATA,
+   HO_CLASS,
+   HO_IMEMO,
+   HO_STRUCT,
+   HO_RATIONAL,
+   HO_MATCH,
+   HO_REGEXP,
+   HO_SYMBOL,
+   HO_ICLASS,
+   HO_FILE,
+   HO_BIGNUM,
+   HO_FLOAT,
+   HO_COMPLEX,
+   HO_MODULE,
+   HO_NODE,
+   HO_ZOMBIE,
+   HO_ROOT,
+   HO_LAST
+};
+
+static const char *const object_type_names[HO_LAST] = {
+      "UNKNOWN",
+      "STRING",
+      "HASH",
+      "ARRAY",
+      "OBJECT",
+      "DATA",
+      "CLASS",
+      "IMEMO",
+      "STRUCT",
+      "RATIONAL",
+      "MATCH",
+      "REGEXP",
+      "SYMBOL",
+      "ICLASS",
+      "FILE",
+      "BIGNUM",
+      "FLOAT",
+      "COMPLEX",
+      "MODULE",
+      "NODE",
+      "ZOMBIE",
+      "ROOT",
+};
+
+enum ObjectFlags : u64 {
+   OBJFLAG_NONE,
+   OBJFLAG_OLD = 1UL << 0UL,
+   OBJFLAG_EMDEDDED = 1UL << 1UL,
+   OBJFLAG_MARKED = 1UL << 2UL,
 };
 
 struct Object {
    u64 address;
+   u64 flags;
    ObjectType type;
 };
 
 struct Page {
    u64 address;
+   u64 slot_start_address;
+   Object *slots[408];
+   u16 slot_count = 0;
 };
 
 struct Heap {
-   i64 pages;
+   Allocator *allocator;
+
+   i64 page_count;
+
+   ArrayList<Object> objects;
+
+   Page **pages;
+   HashTable<u64> page_table;
 };
 
 void heap_read(Heap *heap, const char *filename);
-
-bool heap_read_object(Object *object, const char *str, MemoryArena* arena);

@@ -9,44 +9,196 @@
 #include "memory.h"
 #include "json.h"
 
-struct HeapReader {
-   Object object;
+enum HeapReaderKey {
+   HRK_UNKNOWN,
+   HRK_ADDRESS,
+   HRK_TYPE,
+   HRK_OLD,
+   HRK_EMBEDDED,
+   HRK_MARKED
 };
 
+struct HeapReader {
+   Object object;
+   HeapReaderKey key;
+
+   ArrayList<Object> objects;
+};
+
+void heap_on_key(void *user_data, JsonTok token) {
+   auto reader = (HeapReader *) user_data;
+//   printf("key: %.*s\n", token.text);
+
+   reader->key = HRK_UNKNOWN;
+   if (str_equal(token.text, const_as_string("address"))) {
+      reader->key = HRK_ADDRESS;
+   } else if (str_equal(token.text, const_as_string("type"))) {
+      reader->key = HRK_TYPE;
+   } else if (str_equal(token.text, const_as_string("marked"))) {
+      reader->key = HRK_MARKED;
+   } else if (str_equal(token.text, const_as_string("embedded"))) {
+      reader->key = HRK_EMBEDDED;
+   } else if (str_equal(token.text, const_as_string("old"))) {
+      reader->key = HRK_OLD;
+   } else {
+      reader->key = HRK_UNKNOWN;
+   }
+}
+
+void heap_on_literal(void *user_data, JsonTok token) {
+   auto reader = (HeapReader *) user_data;
+//   printf("literal: %.*s\n", token.text);
+
+   switch (reader->key) {
+      case HRK_ADDRESS: {
+         const char *ptr = token.text.data;
+         JsonNumber number = json_parse_number(&ptr);
+         reader->object.address = number.value.u;
+         break;
+      }
+      case HRK_TYPE: {
+         if (str_equal(token.text, const_as_string("STRING"))) {
+            reader->object.type = ObjectType::HO_STRING;
+         } else if (str_equal(token.text, const_as_string("HASH"))) {
+            reader->object.type = ObjectType::HO_HASH;
+         } else if (str_equal(token.text, const_as_string("OBJECT"))) {
+            reader->object.type = ObjectType::HO_OBJECT;
+         } else if (str_equal(token.text, const_as_string("ARRAY"))) {
+            reader->object.type = ObjectType::HO_ARRAY;
+         } else if (str_equal(token.text, const_as_string("DATA"))) {
+            reader->object.type = ObjectType::HO_DATA;
+         } else if (str_equal(token.text, const_as_string("CLASS"))) {
+            reader->object.type = ObjectType::HO_CLASS;
+         } else if (str_equal(token.text, const_as_string("IMEMO"))) {
+            reader->object.type = ObjectType::HO_IMEMO;
+         } else if (str_equal(token.text, const_as_string("STRUCT"))) {
+            reader->object.type = ObjectType::HO_STRUCT;
+         } else if (str_equal(token.text, const_as_string("RATIONAL"))) {
+            reader->object.type = ObjectType::HO_RATIONAL;
+         } else if (str_equal(token.text, const_as_string("MATCH"))) {
+            reader->object.type = ObjectType::HO_MATCH;
+         } else if (str_equal(token.text, const_as_string("REGEXP"))) {
+            reader->object.type = ObjectType::HO_REGEXP;
+         } else if (str_equal(token.text, const_as_string("SYMBOL"))) {
+            reader->object.type = ObjectType::HO_SYMBOL;
+         } else if (str_equal(token.text, const_as_string("ICLASS"))) {
+            reader->object.type = ObjectType::HO_ICLASS;
+         } else if (str_equal(token.text, const_as_string("FILE"))) {
+            reader->object.type = ObjectType::HO_FILE;
+         } else if (str_equal(token.text, const_as_string("BIGNUM"))) {
+            reader->object.type = ObjectType::HO_BIGNUM;
+         } else if (str_equal(token.text, const_as_string("FLOAT"))) {
+            reader->object.type = ObjectType::HO_FLOAT;
+         } else if (str_equal(token.text, const_as_string("COMPLEX"))) {
+            reader->object.type = ObjectType::HO_COMPLEX;
+         } else if (str_equal(token.text, const_as_string("MODULE"))) {
+            reader->object.type = ObjectType::HO_MODULE;
+         } else if (str_equal(token.text, const_as_string("NODE"))) {
+            reader->object.type = ObjectType::HO_NODE;
+         } else if (str_equal(token.text, const_as_string("ZOMBIE"))) {
+            reader->object.type = ObjectType::HO_ZOMBIE;
+         } else if (str_equal(token.text, const_as_string("ROOT"))) {
+            reader->object.type = ObjectType::HO_ROOT;
+         } else {
+            printf("UNKNOWN: %.*s\n", str_prt(token.text));
+         }
+         break;
+      }
+      case HRK_MARKED:
+         if (str_equal(token.text, const_as_string("true"))) reader->object.flags |= OBJFLAG_MARKED;
+         break;
+      case HRK_OLD:
+         if (str_equal(token.text, const_as_string("true"))) reader->object.flags |= OBJFLAG_OLD;
+         break;
+      case HRK_EMBEDDED:
+         if (str_equal(token.text, const_as_string("true"))) reader->object.flags |= OBJFLAG_EMDEDDED;
+         break;
+      default:
+         break;
+   }
+}
+
+bool heap_read_object(HeapReader *reader, const char *str, Allocator *allocator) {
+   JsonParser parser = {};
+   parser.user_data = reader;
+   parser.on_key = heap_on_key;
+   parser.on_literal = heap_on_literal;
+   return json_parse(&parser, str, allocator);
+}
+
 void heap_read(Heap *heap, const char *filename) {
+   ArenaAllocator heap_allocator = arena_make();
+
+   heap->allocator = (Allocator *) &heap_allocator;
+   arl_init(&heap->objects, heap->allocator);
+   ht_init(&heap->page_table);
+
    FILE *input;
-   char buffer[1024 * 16];
+
+   size_t buffer_size = 1024 * 1024 * 16;
+   char *buffer = (char *) malloc(buffer_size);
 
    input = fopen(filename, "r");
 
-   MemoryArena arena = {};
+   ArenaAllocator arena = arena_make();
+   auto allocator = (Allocator *) &arena;
 
-   HeapReader reader;
+   HeapReader reader = {};
 
-   while (fgets(buffer, array_size(buffer), input)) {
+   while (fgets(buffer, buffer_size, input)) {
+      auto section = arena_temp_begin(&arena);
 
-      auto section = begin_temp_section(&arena);
+      if (!heap_read_object(&reader, buffer, allocator)) {
+//         printf("%s\n", buffer);
+         printf("PARSING FAILED!\n");
+         arena_temp_end(section);
+         break;
+      }
 
-      bool valid = heap_read_object(&reader, buffer, &arena);
+      Object* object = arl_push(&heap->objects, reader.object);
+//      printf("object: address=0x%08lx type=%s\n", reader.object.address, object_type_names[reader.object.type]);
 
-      end_temp_section(section);
+      if (object->address > 0) {
+         u64 page_id = (object->address >> 14U);
+         auto page = (Page *) ht_find(&heap->page_table, page_id);
+         if (!page) {
+            page = std_alloc_type(heap->allocator, Page);
+            page->address = (page_id << 14U);
+
+            page->slot_start_address = page->address + 8;
+            auto delta = page->slot_start_address % 40;
+            if (delta > 0) page->slot_start_address += 40 - delta;
+
+            page->slot_count = 0;
+            ht_add(&heap->page_table, page_id, page);
+         }
+
+         u64 slot_index = (object->address - page->slot_start_address) / 40;
+         page->slots[slot_index] = object;
+         page->slot_count++;
+      }
+
+      arena_temp_end(section);
    }
 
+   arena_free(&arena);
+
+   heap->pages = std_alloc_array(heap->allocator, Page*, heap->page_table.count);
+   for (auto cursor = th_cursor_start(&heap->page_table); th_cursor_valid(&heap->page_table,
+                                                                          cursor); cursor = th_cursor_step(
+         &heap->page_table, cursor)) {
+      heap->pages[heap->page_count++] = (Page *) heap->page_table.items[cursor];
+   }
+
+   qsort(heap->pages, heap->page_count, sizeof(Page *), [](const void *pa, const void *pb) -> int {
+      auto a = *(Page **) pa, b = *(Page **) pb;
+      if (a->address < b->address) return -1;
+      if (a->address > b->address) return 1;
+      return 0;
+   });
+
+   arena_stats_print(&heap_allocator);
+
    fclose(input);
-}
-
-void heap_on_key(void* object_ptr, JsonTok token) {
-   Object
-}
-
-bool heap_read_object(HeapReader *reader, const char *str, MemoryArena* arena) {
-
-
-   JsonParser parser = {};
-   parser
-   parser.on_key =
-
-   json_parse(&parser, str, arena);
-
-   return false;
+   free(buffer);
 }

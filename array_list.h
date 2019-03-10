@@ -8,6 +8,7 @@
 
 #include "types.h"
 #include "util.h"
+#include "allocator.h"
 
 template<typename T>
 struct ArrayListBlock {
@@ -25,21 +26,30 @@ struct ArrayListCursor {
 
 template<typename T>
 struct ArrayList {
+   Allocator* allocator;
    i64 count;
    ArrayListBlock<T> *first;
    ArrayListBlock<T> *last;
 };
 
 template<typename T>
-void arl_init(ArrayList<T> *arl) {
+void arl_init(ArrayList<T> *arl, Allocator* allocator = nullptr) {
+   arl->allocator = allocator;
    arl->count = 0;
    arl->first = nullptr;
    arl->last = nullptr;
 }
 
 template<typename T>
+void arl_make(Allocator *allocator = nullptr) {
+   return ArrayList<T>{allocator, 0, nullptr, nullptr};
+}
+
+template<typename T>
 void arl_grow(ArrayList<T> *arl) {
-   ArrayListBlock<T> *new_block = raw_alloc_type_zero(ArrayListBlock<T>);
+   ArrayListBlock<T> *new_block = std_alloc_type(arl->allocator, ArrayListBlock<T>);
+   new_block->count = 0;
+   new_block->next = nullptr;
 
    if (arl->last) {
       arl->last->next = new_block;
@@ -87,7 +97,7 @@ bool arl_pop(ArrayList<T> *arl) {
          arl->first = nullptr;
       }
 
-      raw_free(block);
+      std_free(arl->allocator, block);
    }
 }
 

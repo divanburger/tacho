@@ -32,6 +32,23 @@ String str_copy(MemoryArena *arena, const char *str, int length) {
    return result;
 }
 
+String str_copy(Allocator* allocator, const char *str) {
+   return str_copy(allocator, str, (int) strlen(str));
+}
+
+String str_copy(Allocator* allocator, String str) {
+   return str_copy(allocator, str.data, str.length);
+}
+
+String str_copy(Allocator* allocator, const char *str, int length) {
+   String result;
+   result.length = length;
+   result.data = std_alloc_zstring(allocator, length);
+   memcpy(result.data, str, (size_t) length);
+   result.data[length] = 0;
+   return result;
+}
+
 String as_string(char *str) {
    return String{(int) strlen(str), str};
 }
