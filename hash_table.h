@@ -22,6 +22,7 @@ struct HashTableSlot {
 
 template<typename K>
 struct HashTable {
+   Allocator* allocator;
    i32 pow2_size;
    i32 size;
    u32 hash_mask;
@@ -101,7 +102,8 @@ inline i32 ht_count(HashTable<K> *table) {
 }
 
 template<typename K>
-void ht_init(HashTable<K> *table) {
+void ht_init(HashTable<K> *table, Allocator* allocator = nullptr) {
+   table->allocator = allocator;
    table->pow2_size = 0;
    table->size = 0;
    table->count = 0;
@@ -109,8 +111,8 @@ void ht_init(HashTable<K> *table) {
 
 template<typename K>
 void ht_destroy(HashTable<K> *table) {
-   raw_free(table->slots);
-   raw_free(table->items);
+   std_free(table->allocator, table->slots);
+   std_free(table->allocator, table->items);
 }
 
 template<typename K>
@@ -176,16 +178,16 @@ void ht_grow(HashTable<K> *table) {
    table->size = 1U << table->pow2_size;
    table->hash_mask = (u32) table->size - 1U;
 
-   table->slots = raw_alloc_array_zero(HashTableSlot<K>, table->size);
-   table->items = raw_alloc_array(void*, table->size);
+   table->slots = std_alloc_array_zero(table->allocator, HashTableSlot<K>, table->size);
+   table->items = std_alloc_array(table->allocator, void*, table->size);
 
    for (u32 index = 0; index < old_size; index++) {
       auto slot = old_slots + index;
       ht__add(table, slot->key, slot->hash, old_entries[index]);
    }
 
-   raw_free(old_slots);
-   raw_free(old_entries);
+   std_free(table->allocator, old_slots);
+   std_free(table->allocator, old_entries);
 }
 
 template<typename K>

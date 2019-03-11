@@ -53,7 +53,7 @@ struct JsonLexer {
    const char *data;
    ArrayList<JsonTok> tokens;
 
-   ArrayListCursor<JsonTok> token_cursor;
+   ArrayListCursor token_cursor;
 };
 
 using JsonParserFunc = void (*)(void *, JsonTok);

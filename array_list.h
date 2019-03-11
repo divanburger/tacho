@@ -10,30 +10,32 @@
 #include "util.h"
 #include "allocator.h"
 
+#define ARRAY_LIST_BLOCK_SIZE 128
+#define ARRAY_LIST_BLOCK_MASK 0x7F
+
 template<typename T>
 struct ArrayListBlock {
-   T data[64];
+   T data[ARRAY_LIST_BLOCK_SIZE];
    i64 count;
    ArrayListBlock<T> *prev;
    ArrayListBlock<T> *next;
 };
 
-template<typename T>
 struct ArrayListCursor {
-   ArrayListBlock<T> *block;
+   void *block;
    i64 index;
 };
 
 template<typename T>
 struct ArrayList {
-   Allocator* allocator;
+   Allocator *allocator;
    i64 count;
    ArrayListBlock<T> *first;
    ArrayListBlock<T> *last;
 };
 
 template<typename T>
-void arl_init(ArrayList<T> *arl, Allocator* allocator = nullptr) {
+void arl_init(ArrayList<T> *arl, Allocator *allocator = nullptr) {
    arl->allocator = allocator;
    arl->count = 0;
    arl->first = nullptr;
@@ -62,7 +64,7 @@ void arl_grow(ArrayList<T> *arl) {
 }
 
 template<typename T>
-T* arl_push(ArrayList<T> *arl, T item) {
+T *arl_push(ArrayList<T> *arl, T item) {
    if (!arl->last || arl->last->count == array_size(arl->last->data)) arl_grow(arl);
    assert(arl->last->count < array_size(arl->last->data));
 
@@ -73,7 +75,7 @@ T* arl_push(ArrayList<T> *arl, T item) {
 }
 
 template<typename T>
-T* arl_push(ArrayList<T> *arl) {
+T *arl_push(ArrayList<T> *arl) {
    if (!arl->last || arl->last->count == array_size(arl->last->data)) arl_grow(arl);
    assert(arl->last->count < array_size(arl->last->data));
 
@@ -81,7 +83,7 @@ T* arl_push(ArrayList<T> *arl) {
    return arl->last->data + (arl->last->count++);
 }
 
-template <typename T>
+template<typename T>
 bool arl_pop(ArrayList<T> *arl) {
    if (!arl->last) return false;
 
@@ -102,33 +104,25 @@ bool arl_pop(ArrayList<T> *arl) {
 }
 
 template<typename T>
-ArrayListCursor<T> arl_cursor_start(ArrayList<T> *arl) {
-   ArrayListCursor<T> cursor;
-   cursor.block = arl->first;
-   cursor.index = 0;
-   return cursor;
-}
-
-template<typename T>
-bool arl_cursor_valid(ArrayListCursor<T> cursor) {
-   return cursor.block;
-}
-
-template<typename T>
-bool arl_cursor_step(ArrayListCursor<T> *cursor) {
-   if (!cursor->block) return false;
-
-   cursor->index++;
-   if (cursor->index >= cursor->block->count) {
-      cursor->block = cursor->block->next;
+bool arl_cursor_step(ArrayList<T> *arl, ArrayListCursor *cursor) {
+   if (!cursor->block) {
+      cursor->block = arl->first;
       cursor->index = 0;
+   } else {
+      cursor->index++;
+      auto arl_block = (ArrayListBlock<T>*)cursor->block;
+      if (cursor->index >= arl_block->count) {
+         cursor->block = arl_block->next;
+         cursor->index = 0;
+      }
    }
 
    return cursor->block;
 }
 
 template<typename T>
-T* arl_cursor_get(ArrayListCursor<T> cursor) {
+T *arl_cursor_get(ArrayListCursor cursor) {
    if (!cursor.block) return nullptr;
-   return cursor.block->data + cursor.index;
+   auto arl_block = (ArrayListBlock<T>*)cursor.block;
+   return arl_block->data + cursor.index;
 }

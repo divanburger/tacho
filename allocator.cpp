@@ -91,6 +91,7 @@ ArenaTempSection arena_temp_begin(ArenaAllocator *arena) {
 
 void arena_temp_end(ArenaTempSection section) {
    ArenaAllocator *arena = section.arena;
+   if (!arena) return;
 
    while (arena->block != section.block) {
       assert(arena->block);

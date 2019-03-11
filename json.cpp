@@ -190,16 +190,15 @@ bool json_lexer(JsonLexer *lexer, const char *data, Allocator *allocator) {
    token.type = JTOK_EOF;
    arl_push(&lexer->tokens, token);
 
-   lexer->token_cursor = arl_cursor_start(&lexer->tokens);
+   lexer->token_cursor = {};
    return true;
 }
 
 JsonTok json_lexer_next(JsonLexer *lexer) {
    JsonTok result = {};
 
-   if (arl_cursor_valid(lexer->token_cursor)) result = *arl_cursor_get(lexer->token_cursor);
+   if (arl_cursor_step(&lexer->tokens, &lexer->token_cursor)) result = *arl_cursor_get<JsonTok>(lexer->token_cursor);
 
-   arl_cursor_step(&lexer->token_cursor);
    return result;
 }
 

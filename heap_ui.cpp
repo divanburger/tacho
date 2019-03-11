@@ -58,7 +58,7 @@ void heap_update_linear(UIContext *ctx, cairo_t *cr, i32rect area) {
    for (size_t page_index = 0; page_index < heap->page_count; page_index++) {
       auto page = heap->pages[page_index];
 
-      u64 page_id = (page->address >> 14U);
+      u64 page_id = page->id;
 
       i64 skip = 0;
       if (page_id > last_page_id + 10000) {
@@ -88,20 +88,50 @@ void heap_update_linear(UIContext *ctx, cairo_t *cr, i32rect area) {
 
          if (x <= ctx->mouse_pos.x && x + page_width > ctx->mouse_pos.x) {
             heap_state.highlighted_page = page;
-            i64 slot_index = ctx->mouse_pos.y - 2;
+            i64 slot_index = (ctx->mouse_pos.y - 2) / 2;
             heap_state.highlighted_slot = (slot_index >= 0 && slot_index <= 408) ? slot_index : -1;
          }
 
          auto colour = Colour{0.33, 0.67, 1.00};
-         cairo_set_source_rgb(cr, colour * (page->slot_count / 408.0));
+
+         bool page_referenced = false;
+         double brightness = 1.0;
+         if (heap_state.active_page) {
+            page_referenced = ht_exist(&heap_state.page_references, page_id);
+            brightness = page_referenced ? 0.3 : 0.1;
+         }
 
          if (page_width < 2.0) {
-            cairo_rectangle(cr, x, 2, page_width, 408);
+            cairo_set_source_rgb(cr, colour * (page->slot_count / 408.0) * brightness);
+            cairo_rectangle(cr, x, 2, page_width, 408 * 2);
             cairo_fill(cr);
          } else {
             for (i32 slot_index = 0; slot_index < 408; slot_index++) {
                Object *slot = page->slots[slot_index];
                if (slot) {
+                  auto slot_brightness = brightness;
+
+                  if (page_referenced) {
+                     if (heap_state.active_page == page && heap_state.active_slot == slot_index) {
+                        slot_brightness = 1.0;
+                     }
+
+                     ArrayListCursor cursor = {};
+                     while (arl_cursor_step(&heap_state.down_references, &cursor)) {
+                        if (slot == *arl_cursor_get<Object *>(cursor)) {
+                           slot_brightness = 0.7;
+                           break;
+                        }
+                     }
+
+                     cursor = {};
+                     while (arl_cursor_step(&heap_state.up_references, &cursor)) {
+                        if (slot == *arl_cursor_get<Object *>(cursor)) {
+                           slot_brightness = 0.7;
+                           break;
+                        }
+                     }
+                  }
 
                   auto slot_colour = Colour{0.33, 0.67, 1.00};
 
@@ -129,11 +159,50 @@ void heap_update_linear(UIContext *ctx, cairo_t *cr, i32rect area) {
                      }
                   }
 
-                  cairo_set_source_rgb(cr, slot_colour);
-                  cairo_rectangle(cr, x, slot_index + 2, page_width, 1);
+                  cairo_set_source_rgb(cr, slot_colour * slot_brightness);
+                  cairo_rectangle(cr, x, slot_index * 2 + 2, page_width, 2);
                   cairo_fill(cr);
                }
             }
+         }
+      }
+   }
+
+   if (ctx->click_went_down) {
+      heap_state.active_page = heap_state.highlighted_page;
+      heap_state.active_slot = heap_state.highlighted_slot;
+
+      arena_temp_end(heap_state.active_temp_section);
+      arena_temp_begin(&heap_state.active_allocator);
+
+      auto allocator = (Allocator *) &heap_state.active_allocator;
+      ht_init(&heap_state.page_references, allocator);
+      arl_init(&heap_state.up_references, allocator);
+      arl_init(&heap_state.down_references, allocator);
+
+      auto object = heap_get_object(HeapLocation{heap_state.active_page, heap_state.active_slot});
+      if (object) {
+         ArrayListCursor cursor = {};
+         while (arl_cursor_step(&object->references, &cursor)) {
+            auto address = *arl_cursor_get<u64>(cursor);
+            auto location = heap_find_object(heap, address);
+            auto other = heap_get_object(location);
+
+            if (location.page && !ht_exist(&heap_state.page_references, location.page->id)) {
+               ht_add(&heap_state.page_references, location.page->id, location.page);
+            }
+            arl_push(&heap_state.down_references, other);
+         }
+
+         cursor = {};
+         while (arl_cursor_step(&object->referenced_by, &cursor)) {
+            auto other = *arl_cursor_get<Object*>(cursor);
+            auto location = heap_find_object(heap, other->address);
+
+            if (location.page && !ht_exist(&heap_state.page_references, location.page->id)) {
+               ht_add(&heap_state.page_references, location.page->id, location.page);
+            }
+            arl_push(&heap_state.up_references, other);
          }
       }
    }
@@ -148,22 +217,54 @@ void heap_update_slot_info(UIContext *ctx, cairo_t *cr, i32rect area) {
    cairo_font_extents(cr, &font_extents);
 
    if (heap_state.highlighted_page && heap_state.highlighted_slot >= 0) {
-      Page* page = heap_state.highlighted_page;
-      Object* object = page->slots[heap_state.highlighted_slot];
+      Page *page = heap_state.highlighted_page;
+      Object *object = page->slots[heap_state.highlighted_slot];
 
-      for (auto cursor = arl_cursor_start(&object->references); arl_cursor_valid(cursor); arl_cursor_step(&cursor)) {
-         u64 address = *arl_cursor_get(cursor);
+      if (object) {
+         if (str_nonblank(object->value)) {
+            cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+            cairo_move_to(cr, area.x + 4, area.y + y + font_extents.ascent);
+            cairo_show_text(cr, object->value.data);
+            y += font_extents.height;
+            y += font_extents.height;
+         }
 
-         String address_str = str_print(&ctx->temp, "%lu", address);
+         ArrayListCursor cursor = {};
+         while (arl_cursor_step(&object->references, &cursor)) {
+            u64 address = *arl_cursor_get<u64>(cursor);
 
-         cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
-         cairo_move_to(cr, area.x + 4, area.y + y + font_extents.ascent);
-         cairo_show_text(cr, address_str.data);
+            String address_str = str_print(&ctx->temp, "%lu", address);
 
-         y += font_extents.height;
+            cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+            cairo_move_to(cr, area.x + 4, area.y + y + font_extents.ascent);
+            cairo_show_text(cr, address_str.data);
+            y += font_extents.height;
+         }
+
+         y += 10;
+
+         cursor = {};
+         while (arl_cursor_step(&object->referenced_by, &cursor)) {
+            Object *other = *arl_cursor_get<Object*>(cursor);
+
+            String address_str = str_print(&ctx->temp, "%lu", other->address);
+
+            cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+            cairo_move_to(cr, area.x + 4, area.y + y + font_extents.ascent);
+            cairo_show_text(cr, address_str.data);
+            y += font_extents.height;
+
+            if (str_nonblank(other->value)) {
+               cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+               cairo_move_to(cr, area.x + 4, area.y + y + font_extents.ascent);
+               cairo_show_text(cr, other->value.data);
+            }
+
+            y += font_extents.height;
+         }
       }
    }
-};
+}
 
 void heap_update_map(UIContext *ctx, cairo_t *cr) {
    auto heap = heap_state.heap;
@@ -181,7 +282,7 @@ void heap_update_map(UIContext *ctx, cairo_t *cr) {
    for (size_t page_index = 0; page_index < heap->page_count; page_index++) {
       auto page = heap->pages[page_index];
 
-      u64 page_id = (page->address >> 14U);
+      u64 page_id = page->id;
       u64 row = page_id / pages_per_row;
 
       if (row > last_row + 5) {
@@ -216,7 +317,11 @@ void heap_update(UIContext *ctx, cairo_t *cr) {
 
    cairo_set_line_width(cr, 1.0);
 
-   heap_state.page_view = PAGE_VIEW_LINEAR;
+   if (heap_state.page_view == PAGE_VIEW_NONE) {
+      heap_state.page_view = PAGE_VIEW_LINEAR;
+
+      heap_state.active_allocator = arena_make();
+   }
 
    if (ctx->key_went_up[SDL_SCANCODE_F1]) heap_state.page_view = PAGE_VIEW_LINEAR;
    if (ctx->key_went_up[SDL_SCANCODE_F2]) heap_state.page_view = PAGE_VIEW_MAP;

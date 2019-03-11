@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdlib>
+#include <cstring>
 
 #include "types.h"
 #include "util.h"
@@ -22,7 +23,17 @@ inline void *std_alloc(Allocator *allocator, size_t size) {
    if (allocator) {
       return allocator->alloc(allocator, size);
    } else {
-      return raw_alloc_size(size);//calloc(1, size);
+      return raw_alloc_size(size);
+   }
+}
+
+inline void *std_alloc_zero(Allocator *allocator, size_t size) {
+   if (allocator) {
+      void* mem = allocator->alloc(allocator, size);
+      memset(mem, 0, size);
+      return mem;
+   } else {
+      return raw_alloc_size_zero(size);
    }
 }
 
@@ -36,6 +47,7 @@ inline void std_free(Allocator *allocator, void *ptr) {
 
 #define std_alloc_type(allocator, type) ((type*)std_alloc(allocator, sizeof(type)))
 #define std_alloc_array(allocator, type, count) ((type*)std_alloc(allocator, sizeof(type) * (count)))
+#define std_alloc_array_zero(allocator, type, count) ((type*)std_alloc_zero(allocator, sizeof(type) * (count)))
 #define std_alloc_zstring(allocator, size) ((char *)std_alloc(allocator, size + 1))
 
 inline void noop_free(void *allocator, void *ptr) {}

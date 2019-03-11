@@ -10,6 +10,7 @@
 #include <cairo/cairo.h>
 
 enum PageViewType {
+   PAGE_VIEW_NONE,
    PAGE_VIEW_LINEAR,
    PAGE_VIEW_MAP
 };
@@ -30,6 +31,16 @@ struct HeapUIState {
 
    Page *highlighted_page;
    i16 highlighted_slot;
+
+   Page *active_page;
+   i16 active_slot;
+
+   ArenaAllocator active_allocator;
+   ArenaTempSection active_temp_section;
+
+   HashTable<u64> page_references;
+   ArrayList<Object*> up_references;
+   ArrayList<Object*> down_references;
 };
 
 extern HeapUIState heap_state;

@@ -534,8 +534,9 @@ void timeline_update_runs(UIContext *ctx, cairo_t *cr, irect area) {
    auto old_highlighted = state.highlighted_timeline;
    state.highlighted_timeline = nullptr;
 
-   for (auto cursor = arl_cursor_start(&state.timelines); arl_cursor_valid(cursor); arl_cursor_step(&cursor)) {
-      Timeline *timeline = arl_cursor_get(cursor);
+   ArrayListCursor cursor = {};
+   while (arl_cursor_step(&state.timelines, &cursor)) {
+      auto *timeline = arl_cursor_get<Timeline>(cursor);
 
       if (inside(Rect(scroll_area.x, cur_y, scroll_area.w, 30), ctx->mouse_pos)) {
          state.highlighted_timeline = timeline;

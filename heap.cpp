@@ -16,19 +16,18 @@ enum HeapReaderKey {
    HRK_OLD,
    HRK_EMBEDDED,
    HRK_MARKED,
-   HRK_REFERENCES
+   HRK_REFERENCES,
+   HRK_VALUE
 };
 
 struct HeapReader {
+   Allocator *allocator;
+
    Object object;
    HeapReaderKey key;
 
    ArrayList<Object> objects;
-};
-
-struct HeapLocation {
-   Page *page;
-   i16 slot_index;
+   HashTable<u64> page_table;
 };
 
 void heap_on_key(void *user_data, JsonTok token) {
@@ -48,6 +47,8 @@ void heap_on_key(void *user_data, JsonTok token) {
       reader->key = HRK_OLD;
    } else if (str_equal(token.text, const_as_string("references"))) {
       reader->key = HRK_REFERENCES;
+   } else if (str_equal(token.text, const_as_string("value"))) {
+      reader->key = HRK_VALUE;
    } else {
       reader->key = HRK_UNKNOWN;
    }
@@ -127,6 +128,9 @@ void heap_on_literal(void *user_data, JsonTok token) {
          arl_push(&reader->object.references, number.value.u);
          break;
       }
+      case HRK_VALUE:
+         reader->object.value = str_copy(reader->allocator, token.text);
+         break;
       default:
          break;
    }
@@ -136,7 +140,14 @@ HeapLocation heap_find_object(Heap *heap, u64 address) {
    HeapLocation location = {};
 
    u64 page_id = address >> 14U;
-   auto page = (Page *) ht_find(&heap->page_table, page_id);
+   Page *page = nullptr;
+   for (u64 index = 0; index < heap->page_count; index++) {
+      if (heap->pages[index]->id == page_id) {
+         page = heap->pages[index];
+         break;
+      }
+   }
+
    if (page) {
       location.page = page;
       location.slot_index = (address - location.page->slot_start_address) / 40;
@@ -144,22 +155,26 @@ HeapLocation heap_find_object(Heap *heap, u64 address) {
    return location;
 }
 
-bool heap_read_object(HeapReader *reader, const char *str, Allocator *allocator) {
+bool heap_read_object(HeapReader *reader, const char *str, Allocator *temp_allocator) {
    reader->object = {};
+   arl_init(&reader->object.referenced_by, reader->allocator);
+   arl_init(&reader->object.references, reader->allocator);
 
    JsonParser parser = {};
    parser.user_data = reader;
    parser.on_key = heap_on_key;
    parser.on_literal = heap_on_literal;
-   return json_parse(&parser, str, allocator);
+   return json_parse(&parser, str, temp_allocator);
 }
 
 void heap_read(Heap *heap, const char *filename) {
    ArenaAllocator heap_allocator = arena_make();
+   HeapReader reader = {};
+   reader.allocator = (Allocator *) &heap_allocator;
 
    heap->allocator = (Allocator *) &heap_allocator;
    arl_init(&heap->objects, heap->allocator);
-   ht_init(&heap->page_table);
+   ht_init(&reader.page_table);
 
    FILE *input;
 
@@ -170,8 +185,6 @@ void heap_read(Heap *heap, const char *filename) {
 
    ArenaAllocator arena = arena_make();
    auto allocator = (Allocator *) &arena;
-
-   HeapReader reader = {};
 
    while (fgets(buffer, buffer_size, input)) {
       auto section = arena_temp_begin(&arena);
@@ -188,17 +201,17 @@ void heap_read(Heap *heap, const char *filename) {
 
       if (object->address > 0) {
          u64 page_id = (object->address >> 14U);
-         auto page = (Page *) ht_find(&heap->page_table, page_id);
+         auto page = (Page *) ht_find(&reader.page_table, page_id);
          if (!page) {
             page = std_alloc_type(heap->allocator, Page);
-            page->address = (page_id << 14U);
+            page->id = page_id;
 
-            page->slot_start_address = page->address + 8;
+            page->slot_start_address = (page->id << 14U) + 8;
             auto delta = page->slot_start_address % 40;
             if (delta > 0) page->slot_start_address += 40 - delta;
 
             page->slot_count = 0;
-            ht_add(&heap->page_table, page_id, page);
+            ht_add(&reader.page_table, page_id, page);
          }
 
          u64 slot_index = (object->address - page->slot_start_address) / 40;
@@ -211,19 +224,34 @@ void heap_read(Heap *heap, const char *filename) {
 
    arena_free(&arena);
 
-   heap->pages = std_alloc_array(heap->allocator, Page*, heap->page_table.count);
-   for (auto cursor = th_cursor_start(&heap->page_table); th_cursor_valid(&heap->page_table,
-                                                                          cursor); cursor = th_cursor_step(
-         &heap->page_table, cursor)) {
-      heap->pages[heap->page_count++] = (Page *) heap->page_table.items[cursor];
+   heap->pages = std_alloc_array(heap->allocator, Page*, reader.page_table.count);
+   for (auto cursor = th_cursor_start(&reader.page_table); th_cursor_valid(&reader.page_table,
+                                                                           cursor); cursor = th_cursor_step(
+         &reader.page_table, cursor)) {
+      heap->pages[heap->page_count++] = (Page *) reader.page_table.items[cursor];
    }
 
    qsort(heap->pages, heap->page_count, sizeof(Page *), [](const void *pa, const void *pb) -> int {
       auto a = *(Page **) pa, b = *(Page **) pb;
-      if (a->address < b->address) return -1;
-      if (a->address > b->address) return 1;
+      if (a->id < b->id) return -1;
+      if (a->id > b->id) return 1;
       return 0;
    });
+
+   ArrayListCursor cursor = {};
+   while (arl_cursor_step(&heap->objects, &cursor)) {
+      auto object = arl_cursor_get<Object>(cursor);
+
+      ArrayListCursor ref_cur = {};
+      while (arl_cursor_step(&object->references, &ref_cur)) {
+         auto address = *arl_cursor_get<u64>(ref_cur);
+         auto location = heap_find_object(heap, address);
+         if (location.page && location.slot_index >= 0) {
+            auto other = location.page->slots[location.slot_index];
+            if (other) arl_push(&other->referenced_by, object);
+         }
+      }
+   }
 
    arena_stats_print(&heap_allocator);
 

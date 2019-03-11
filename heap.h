@@ -72,12 +72,14 @@ struct Object {
    u64 address;
    u64 flags;
    ObjectType type;
+   String value;
 
+   ArrayList<Object *> referenced_by;
    ArrayList<u64> references;
 };
 
 struct Page {
-   u64 address;
+   u64 id;
    u64 slot_start_address;
    Object *slots[408];
    i16 slot_count = 0;
@@ -91,7 +93,16 @@ struct Heap {
    ArrayList<Object> objects;
 
    Page **pages;
-   HashTable<u64> page_table;
+};
+
+struct HeapLocation {
+   Page *page;
+   i16 slot_index;
 };
 
 void heap_read(Heap *heap, const char *filename);
+HeapLocation heap_find_object(Heap *heap, u64 address);
+
+inline Object *heap_get_object(HeapLocation location) {
+   return location.page && location.slot_index >= 0 ? location.page->slots[location.slot_index] : nullptr;
+}
