@@ -27,6 +27,9 @@ struct HeapUIState {
    f64 click_draw_page_start;
    f64 draw_page_start;
    f64 pages_per_width;
+
+   Page *highlighted_page;
+   i16 highlighted_slot;
 };
 
 extern HeapUIState heap_state;

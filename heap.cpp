@@ -15,7 +15,8 @@ enum HeapReaderKey {
    HRK_TYPE,
    HRK_OLD,
    HRK_EMBEDDED,
-   HRK_MARKED
+   HRK_MARKED,
+   HRK_REFERENCES
 };
 
 struct HeapReader {
@@ -23,6 +24,11 @@ struct HeapReader {
    HeapReaderKey key;
 
    ArrayList<Object> objects;
+};
+
+struct HeapLocation {
+   Page *page;
+   i16 slot_index;
 };
 
 void heap_on_key(void *user_data, JsonTok token) {
@@ -40,6 +46,8 @@ void heap_on_key(void *user_data, JsonTok token) {
       reader->key = HRK_EMBEDDED;
    } else if (str_equal(token.text, const_as_string("old"))) {
       reader->key = HRK_OLD;
+   } else if (str_equal(token.text, const_as_string("references"))) {
+      reader->key = HRK_REFERENCES;
    } else {
       reader->key = HRK_UNKNOWN;
    }
@@ -113,9 +121,27 @@ void heap_on_literal(void *user_data, JsonTok token) {
       case HRK_EMBEDDED:
          if (str_equal(token.text, const_as_string("true"))) reader->object.flags |= OBJFLAG_EMDEDDED;
          break;
+      case HRK_REFERENCES: {
+         const char *ptr = token.text.data;
+         JsonNumber number = json_parse_number(&ptr);
+         arl_push(&reader->object.references, number.value.u);
+         break;
+      }
       default:
          break;
    }
+}
+
+HeapLocation heap_find_object(Heap *heap, u64 address) {
+   HeapLocation location = {};
+
+   u64 page_id = address >> 14U;
+   auto page = (Page *) ht_find(&heap->page_table, page_id);
+   if (page) {
+      location.page = page;
+      location.slot_index = (address - location.page->slot_start_address) / 40;
+   }
+   return location;
 }
 
 bool heap_read_object(HeapReader *reader, const char *str, Allocator *allocator) {
@@ -155,7 +181,7 @@ void heap_read(Heap *heap, const char *filename) {
          break;
       }
 
-      Object* object = arl_push(&heap->objects, reader.object);
+      Object *object = arl_push(&heap->objects, reader.object);
 //      printf("object: address=0x%08lx type=%s\n", reader.object.address, object_type_names[reader.object.type]);
 
       if (object->address > 0) {

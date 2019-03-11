@@ -72,13 +72,15 @@ struct Object {
    u64 address;
    u64 flags;
    ObjectType type;
+
+   ArrayList<u64> references;
 };
 
 struct Page {
    u64 address;
    u64 slot_start_address;
    Object *slots[408];
-   u16 slot_count = 0;
+   i16 slot_count = 0;
 };
 
 struct Heap {

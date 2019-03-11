@@ -8,10 +8,17 @@
 
 HeapUIState heap_state = {};
 
-void heap_update_linear(UIContext *ctx, cairo_t *cr) {
+void heap_update_linear(UIContext *ctx, cairo_t *cr, i32rect area) {
    auto heap = heap_state.heap;
 
-   i32rect area = Rect(0, 0, ctx->width, ctx->height);
+   heap_state.highlighted_page = nullptr;
+   heap_state.highlighted_slot = -1;
+
+   Colour chart_background = Colour{0.1, 0.1, 0.1};
+   cairo_set_source_rgb(cr, chart_background);
+   cairo_rectangle(cr, area.x, area.y, area.w, area.h);
+   cairo_fill_preserve(cr);
+   cairo_clip(cr);
 
    if (ctx->click_went_down) {
       heap_state.click_draw_page_start = heap_state.draw_page_start;
@@ -25,12 +32,15 @@ void heap_update_linear(UIContext *ctx, cairo_t *cr) {
 
    f64 mouse_page = heap_state.draw_page_start + ((ctx->mouse_pos.x - area.x) * heap_state.pages_per_width) / area.w;
 
-   f64 zoom_factor = (ctx->mouse_delta_z > 0 ? (1.0 / 1.1) : 1.1);
-   int zoom_iters = (ctx->mouse_delta_z > 0 ? ctx->mouse_delta_z : -ctx->mouse_delta_z);
-   for (i32 i = 0; i < zoom_iters; i++) {
-      heap_state.pages_per_width *= zoom_factor;
+   bool inside_area = inside(area, ctx->mouse_pos.x, ctx->mouse_pos.y);
+   if (inside_area) {
+      f64 zoom_factor = (ctx->mouse_delta_z > 0 ? (1.0 / 1.1) : 1.1);
+      int zoom_iters = (ctx->mouse_delta_z > 0 ? ctx->mouse_delta_z : -ctx->mouse_delta_z);
+      for (i32 i = 0; i < zoom_iters; i++) {
+         heap_state.pages_per_width *= zoom_factor;
+      }
+      heap_state.draw_page_start = (mouse_page - ((ctx->mouse_pos.x - area.x) * heap_state.pages_per_width) / area.w);
    }
-   heap_state.draw_page_start = (mouse_page - ((ctx->mouse_pos.x - area.x) * heap_state.pages_per_width) / area.w);
 
    if (heap_state.draw_page_start < 0.0) {
       heap_state.draw_page_start = 0.0;
@@ -75,6 +85,13 @@ void heap_update_linear(UIContext *ctx, cairo_t *cr) {
       double x = (page_id + offset - heap_state.draw_page_start) * page_width;
 
       if (x < ctx->width && x + page_width >= 0.0) {
+
+         if (x <= ctx->mouse_pos.x && x + page_width > ctx->mouse_pos.x) {
+            heap_state.highlighted_page = page;
+            i64 slot_index = ctx->mouse_pos.y - 2;
+            heap_state.highlighted_slot = (slot_index >= 0 && slot_index <= 408) ? slot_index : -1;
+         }
+
          auto colour = Colour{0.33, 0.67, 1.00};
          cairo_set_source_rgb(cr, colour * (page->slot_count / 408.0));
 
@@ -113,7 +130,33 @@ void heap_update_linear(UIContext *ctx, cairo_t *cr) {
          }
       }
    }
+
+   cairo_reset_clip(cr);
 }
+
+void heap_update_slot_info(UIContext *ctx, cairo_t *cr, i32rect area) {
+   double y = 0;
+
+   cairo_font_extents_t font_extents;
+   cairo_font_extents(cr, &font_extents);
+
+   if (heap_state.highlighted_page && heap_state.highlighted_slot >= 0) {
+      Page* page = heap_state.highlighted_page;
+      Object* object = page->slots[heap_state.highlighted_slot];
+
+      for (auto cursor = arl_cursor_start(&object->references); arl_cursor_valid(cursor); arl_cursor_step(&cursor)) {
+         u64 address = *arl_cursor_get(cursor);
+
+         String address_str = str_print(&ctx->temp, "%lu", address);
+
+         cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+         cairo_move_to(cr, area.x + 4, area.y + y + font_extents.ascent);
+         cairo_show_text(cr, address_str.data);
+
+         y += font_extents.height;
+      }
+   }
+};
 
 void heap_update_map(UIContext *ctx, cairo_t *cr) {
    auto heap = heap_state.heap;
@@ -164,20 +207,20 @@ void heap_update(UIContext *ctx, cairo_t *cr) {
    cairo_select_font_face(cr, "Source Code Pro", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
    cairo_set_font_size(cr, 10);
 
-   cairo_font_extents_t font_extents;
-   cairo_font_extents(cr, &font_extents);
-
    cairo_set_line_width(cr, 1.0);
 
    heap_state.page_view = PAGE_VIEW_LINEAR;
+
+   auto area = Rect(0, 0, ctx->width - 400, ctx->height);
 
    switch (heap_state.page_view) {
       case PAGE_VIEW_MAP:
          heap_update_map(ctx, cr);
          break;
       case PAGE_VIEW_LINEAR:
-         heap_update_linear(ctx, cr);
+         heap_update_linear(ctx, cr, area);
          break;
    }
 
+   heap_update_slot_info(ctx, cr, Rect(ctx->width - 400, 0, 400, ctx->height));
 }
