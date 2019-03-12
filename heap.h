@@ -81,6 +81,7 @@ struct Object {
 struct Page {
    u64 id;
    u64 slot_start_address;
+   u64 xpos;
    Object *slots[408];
    i16 slot_count = 0;
 };
@@ -89,6 +90,7 @@ struct Heap {
    Allocator *allocator;
 
    i64 page_count;
+   u64 max_xpos;
 
    ArrayList<Object> objects;
 

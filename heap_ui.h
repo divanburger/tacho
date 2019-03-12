@@ -9,6 +9,8 @@
 
 #include <cairo/cairo.h>
 
+#define SLOT_ALL -1
+
 enum PageViewType {
    PAGE_VIEW_NONE,
    PAGE_VIEW_LINEAR,
@@ -29,11 +31,9 @@ struct HeapUIState {
    f64 draw_page_start;
    f64 pages_per_width;
 
-   Page *highlighted_page;
-   i16 highlighted_slot;
-
-   Page *active_page;
-   i16 active_slot;
+   HeapLocation highlighted;
+   HeapLocation active_start;
+   HeapLocation active_end;
 
    ArenaAllocator active_allocator;
    ArenaTempSection active_temp_section;

@@ -8,11 +8,62 @@
 
 HeapUIState heap_state = {};
 
+void add_objects_references(Object *object) {
+   auto heap = heap_state.heap;
+
+   ArrayListCursor cursor = {};
+//   while (arl_cursor_step(&object->references, &cursor)) {
+//      auto address = *arl_cursor_get<u64>(cursor);
+//      auto location = heap_find_object(heap, address);
+//      auto other = heap_get_object(location);
+//
+//      if (location.page && !ht_exist(&heap_state.page_references, location.page->id)) {
+//         ht_add(&heap_state.page_references, location.page->id, location.page);
+//      }
+//      arl_push(&heap_state.down_references, other);
+//   }
+//
+//   cursor = {};
+   while (arl_cursor_step(&object->referenced_by, &cursor)) {
+      auto other = *arl_cursor_get<Object *>(cursor);
+      auto location = heap_find_object(heap, other->address);
+
+      if (location.page && !ht_exist(&heap_state.page_references, location.page->id)) {
+         ht_add(&heap_state.page_references, location.page->id, location.page);
+      }
+      arl_push(&heap_state.up_references, other);
+   }
+}
+
+void make_highlighted_slot_active() {
+   if (!heap_state.highlighted.page) return;
+
+   heap_state.active_start = heap_state.highlighted;
+   heap_state.active_end = heap_state.highlighted;
+
+   arena_temp_end(heap_state.active_temp_section);
+   arena_temp_begin(&heap_state.active_allocator);
+
+   auto allocator = (Allocator *) &heap_state.active_allocator;
+   ht_init(&heap_state.page_references, allocator);
+   arl_init(&heap_state.up_references, allocator);
+   arl_init(&heap_state.down_references, allocator);
+
+   if (heap_state.active_start.slot_index >= 0) {
+      auto object = heap_get_object(heap_state.active_start);
+      if (object) add_objects_references(object);
+   } else {
+      for (i16 slot_index = 0; slot_index < 408; slot_index++) {
+         auto object = heap_state.active_start.page->slots[slot_index];
+         if (object) add_objects_references(object);
+      }
+   }
+}
+
 void heap_update_linear(UIContext *ctx, cairo_t *cr, i32rect area) {
    auto heap = heap_state.heap;
 
-   heap_state.highlighted_page = nullptr;
-   heap_state.highlighted_slot = -1;
+   heap_state.highlighted = HeapLocation{nullptr, SLOT_ALL};
 
    Colour chart_background = Colour{0.1, 0.1, 0.1};
    cairo_set_source_rgb(cr, chart_background);
@@ -52,83 +103,69 @@ void heap_update_linear(UIContext *ctx, cairo_t *cr, i32rect area) {
 
    f64 page_width = area.w / heap_state.pages_per_width;
 
-   u64 last_page_id = 0;
-   i64 offset = 0;
-
+   i64 page_header_height = 32;
    for (size_t page_index = 0; page_index < heap->page_count; page_index++) {
       auto page = heap->pages[page_index];
 
-      u64 page_id = page->id;
-
-      i64 skip = 0;
-      if (page_id > last_page_id + 10000) {
-         skip = (i64) (page_id - last_page_id) - 1000;
-      }
-
-      if (skip > 0) {
-         double x1 = (last_page_id + 1 + offset - heap_state.draw_page_start) * page_width;
-         double x2 = (page_id - 1 + offset - skip - heap_state.draw_page_start) * page_width;
-
-         x1 = (x1 + x2) * 0.5 - 10;
-         x2 = x1 + 10;
-
-         if (x1 < ctx->width && x2 >= 0.0) {
-            cairo_set_source_rgb(cr, 0.1, 0.1, 0.1);
-            cairo_rectangle(cr, x1, 2, x2 - x1, 411);
-            cairo_fill(cr);
-         }
-      }
-
-      last_page_id = page_id;
-      offset -= skip;
-
-      double x = (page_id + offset - heap_state.draw_page_start) * page_width;
+      double x = (page->xpos - heap_state.draw_page_start) * page_width;
 
       if (x < ctx->width && x + page_width >= 0.0) {
 
          if (x <= ctx->mouse_pos.x && x + page_width > ctx->mouse_pos.x) {
-            heap_state.highlighted_page = page;
-            i64 slot_index = (ctx->mouse_pos.y - 2) / 2;
-            heap_state.highlighted_slot = (slot_index >= 0 && slot_index <= 408) ? slot_index : -1;
+            i64 slot_index = (ctx->mouse_pos.y - page_header_height) / 2;
+            if ((slot_index >= 0 && slot_index <= 408)) {
+               heap_state.highlighted = HeapLocation{page, (i16)slot_index};
+            } else if (slot_index < 0) {
+               heap_state.highlighted = HeapLocation{page, SLOT_ALL};
+            }
          }
 
          auto colour = Colour{0.33, 0.67, 1.00};
 
          bool page_referenced = false;
          double brightness = 1.0;
-         if (heap_state.active_page) {
-            page_referenced = ht_exist(&heap_state.page_references, page_id);
+         if (heap_state.active_start.page) {
+            page_referenced = heap_state.active_start.page == page || ht_exist(&heap_state.page_references, page->id);
             brightness = page_referenced ? 0.3 : 0.1;
          }
 
+         cairo_set_source_rgb(cr, lerp(brightness, chart_background, colour * (page->slot_count / 408.0)));
+
          if (page_width < 2.0) {
-            cairo_set_source_rgb(cr, colour * (page->slot_count / 408.0) * brightness);
-            cairo_rectangle(cr, x, 2, page_width, 408 * 2);
+            cairo_rectangle(cr, x, 0, page_width, page_header_height + 408 * 2);
             cairo_fill(cr);
          } else {
+            cairo_rectangle(cr, x, 0, page_width, page_header_height);
+            cairo_fill(cr);
+
             for (i32 slot_index = 0; slot_index < 408; slot_index++) {
                Object *slot = page->slots[slot_index];
                if (slot) {
                   auto slot_brightness = brightness;
 
+                  bool slot_referenced = false;
                   if (page_referenced) {
-                     if (heap_state.active_page == page && heap_state.active_slot == slot_index) {
+                     if (heap_state.active_start.page == page &&
+                         (heap_state.active_start.slot_index == SLOT_ALL || heap_state.active_start.slot_index == slot_index)) {
                         slot_brightness = 1.0;
+                        slot_referenced = true;
                      }
 
-                     ArrayListCursor cursor = {};
-                     while (arl_cursor_step(&heap_state.down_references, &cursor)) {
-                        if (slot == *arl_cursor_get<Object *>(cursor)) {
-                           slot_brightness = 0.7;
-                           break;
+                     if (!slot_referenced) {
+                        ArrayListCursor cursor = {};
+                        while (arl_cursor_step(&heap_state.down_references, &cursor)) {
+                           if (slot == *arl_cursor_get<Object *>(cursor)) {
+                              slot_brightness = 0.7;
+                              break;
+                           }
                         }
-                     }
 
-                     cursor = {};
-                     while (arl_cursor_step(&heap_state.up_references, &cursor)) {
-                        if (slot == *arl_cursor_get<Object *>(cursor)) {
-                           slot_brightness = 0.7;
-                           break;
+                        cursor = {};
+                        while (arl_cursor_step(&heap_state.up_references, &cursor)) {
+                           if (slot == *arl_cursor_get<Object *>(cursor)) {
+                              slot_brightness = 0.7;
+                              break;
+                           }
                         }
                      }
                   }
@@ -159,8 +196,8 @@ void heap_update_linear(UIContext *ctx, cairo_t *cr, i32rect area) {
                      }
                   }
 
-                  cairo_set_source_rgb(cr, slot_colour * slot_brightness);
-                  cairo_rectangle(cr, x, slot_index * 2 + 2, page_width, 2);
+                  cairo_set_source_rgb(cr, lerp(slot_brightness, chart_background, slot_colour));
+                  cairo_rectangle(cr, x, slot_index * 2 + page_header_height, page_width, 2);
                   cairo_fill(cr);
                }
             }
@@ -168,96 +205,134 @@ void heap_update_linear(UIContext *ctx, cairo_t *cr, i32rect area) {
       }
    }
 
-   if (ctx->click_went_down) {
-      heap_state.active_page = heap_state.highlighted_page;
-      heap_state.active_slot = heap_state.highlighted_slot;
+   double minimap_height = 30;
+   double factor = (double)area.w / heap->max_xpos;
+   double y = area.x + area.h - minimap_height;
 
-      arena_temp_end(heap_state.active_temp_section);
-      arena_temp_begin(&heap_state.active_allocator);
+   bool referenced = false;
+   i64 last_x_pixel = -1;
 
-      auto allocator = (Allocator *) &heap_state.active_allocator;
-      ht_init(&heap_state.page_references, allocator);
-      arl_init(&heap_state.up_references, allocator);
-      arl_init(&heap_state.down_references, allocator);
+   for (size_t page_index = 0; page_index < heap->page_count; page_index++) {
+      auto page = heap->pages[page_index];
+      double x = page->xpos * factor;
+      i64 x_pixel = (i64)x;
 
-      auto object = heap_get_object(HeapLocation{heap_state.active_page, heap_state.active_slot});
-      if (object) {
-         ArrayListCursor cursor = {};
-         while (arl_cursor_step(&object->references, &cursor)) {
-            auto address = *arl_cursor_get<u64>(cursor);
-            auto location = heap_find_object(heap, address);
-            auto other = heap_get_object(location);
+      if (heap_state.active_start.page) {
+         referenced = referenced || heap_state.active_start.page == page || ht_exist(&heap_state.page_references, page->id);
+      }
 
-            if (location.page && !ht_exist(&heap_state.page_references, location.page->id)) {
-               ht_add(&heap_state.page_references, location.page->id, location.page);
-            }
-            arl_push(&heap_state.down_references, other);
+      if (last_x_pixel != x_pixel) {
+         double brightness = 1.0;
+         if (heap_state.active_start.page) {
+            brightness = referenced ? 1.0 : 0.3;
          }
+         cairo_set_source_rgb(cr, lerp(brightness, chart_background, Colour{1.0, 1.0, 1.0}));
+         cairo_rectangle(cr, x_pixel, y, 1, minimap_height);
+         cairo_fill(cr);
 
-         cursor = {};
-         while (arl_cursor_step(&object->referenced_by, &cursor)) {
-            auto other = *arl_cursor_get<Object*>(cursor);
-            auto location = heap_find_object(heap, other->address);
-
-            if (location.page && !ht_exist(&heap_state.page_references, location.page->id)) {
-               ht_add(&heap_state.page_references, location.page->id, location.page);
-            }
-            arl_push(&heap_state.up_references, other);
-         }
+         referenced = false;
+         last_x_pixel = x_pixel;
       }
    }
+
+   if (ctx->click_went_down) make_highlighted_slot_active();
 
    cairo_reset_clip(cr);
 }
 
 void heap_update_slot_info(UIContext *ctx, cairo_t *cr, i32rect area) {
+   auto heap = heap_state.heap;
+
    double y = 0;
 
    cairo_font_extents_t font_extents;
    cairo_font_extents(cr, &font_extents);
 
-   if (heap_state.highlighted_page && heap_state.highlighted_slot >= 0) {
-      Page *page = heap_state.highlighted_page;
-      Object *object = page->slots[heap_state.highlighted_slot];
+   Colour heading_colour = Colour{1.0, 1.0, 0.9};
+   Colour text_colour = Colour{0.8, 0.8, 0.8};
+
+   if (heap_state.active_start.page && heap_state.active_start.slot_index >= 0) {
+      Object *object = heap_get_object(heap_state.active_start);
 
       if (object) {
+         cairo_set_source_rgb(cr, heading_colour);
+         cairo_move_to(cr, area.x + 4, area.y + y + font_extents.ascent);
+         cairo_show_text(cr, "Information");
+         y += font_extents.height;
+
+         cairo_move_to(cr, area.x + 4, area.y + y + font_extents.ascent);
+         cairo_show_text(cr, object_type_names[object->type]);
+         y += font_extents.height;
+
          if (str_nonblank(object->value)) {
-            cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+            cairo_set_source_rgb(cr, text_colour);
             cairo_move_to(cr, area.x + 4, area.y + y + font_extents.ascent);
             cairo_show_text(cr, object->value.data);
-            y += font_extents.height;
-            y += font_extents.height;
-         }
-
-         ArrayListCursor cursor = {};
-         while (arl_cursor_step(&object->references, &cursor)) {
-            u64 address = *arl_cursor_get<u64>(cursor);
-
-            String address_str = str_print(&ctx->temp, "%lu", address);
-
-            cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
-            cairo_move_to(cr, area.x + 4, area.y + y + font_extents.ascent);
-            cairo_show_text(cr, address_str.data);
             y += font_extents.height;
          }
 
          y += 10;
 
+         cairo_set_source_rgb(cr, heading_colour);
+         cairo_move_to(cr, area.x + 4, area.y + y + font_extents.ascent);
+         cairo_show_text(cr, "References");
+         y += font_extents.height;
+
+         cairo_set_source_rgb(cr, text_colour);
+         ArrayListCursor cursor = {};
+         while (arl_cursor_step(&object->references, &cursor)) {
+            u64 address = *arl_cursor_get<u64>(cursor);
+            Object* object = heap_get_object(heap_find_object(heap, address));
+
+            double x = area.x + 4;
+            String address_str = str_print(&ctx->temp, "%lu", address);
+            cairo_move_to(cr, x, area.y + y + font_extents.ascent);
+            cairo_show_text(cr, address_str.data);
+
+            x += 100;
+            if (object) {
+               cairo_move_to(cr, x, area.y + y + font_extents.ascent);
+               cairo_show_text(cr, object_type_names[object->type]);
+
+               if (str_nonblank(object->value)) {
+                  x += 60;
+                  cairo_move_to(cr, x, area.y + y + font_extents.ascent);
+                  cairo_show_text(cr, object->value.data);
+               }
+            } else {
+               cairo_move_to(cr, x, area.y + y + font_extents.ascent);
+               cairo_show_text(cr, "<can not find object in heap>");
+            }
+
+            y += font_extents.height;
+         }
+
+         y += 10;
+
+         cairo_set_source_rgb(cr, heading_colour);
+         cairo_move_to(cr, area.x + 4, area.y + y + font_extents.ascent);
+         cairo_show_text(cr, "Referenced by");
+         y += font_extents.height;
+
+         cairo_set_source_rgb(cr, text_colour);
          cursor = {};
          while (arl_cursor_step(&object->referenced_by, &cursor)) {
-            Object *other = *arl_cursor_get<Object*>(cursor);
+            Object *other = *arl_cursor_get<Object *>(cursor);
 
             String address_str = str_print(&ctx->temp, "%lu", other->address);
 
-            cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+            double x = area.x + 4;
             cairo_move_to(cr, area.x + 4, area.y + y + font_extents.ascent);
             cairo_show_text(cr, address_str.data);
-            y += font_extents.height;
 
-            if (str_nonblank(other->value)) {
-               cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
-               cairo_move_to(cr, area.x + 4, area.y + y + font_extents.ascent);
-               cairo_show_text(cr, other->value.data);
+            x += 100;
+            cairo_move_to(cr, x, area.y + y + font_extents.ascent);
+            cairo_show_text(cr, object_type_names[object->type]);
+
+            if (str_nonblank(object->value)) {
+               x += 60;
+               cairo_move_to(cr, x, area.y + y + font_extents.ascent);
+               cairo_show_text(cr, object->value.data);
             }
 
             y += font_extents.height;

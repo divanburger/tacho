@@ -22,6 +22,7 @@ enum HeapReaderKey {
 
 struct HeapReader {
    Allocator *allocator;
+   Heap *heap;
 
    Object object;
    HeapReaderKey key;
@@ -141,9 +142,21 @@ HeapLocation heap_find_object(Heap *heap, u64 address) {
 
    u64 page_id = address >> 14U;
    Page *page = nullptr;
-   for (u64 index = 0; index < heap->page_count; index++) {
-      if (heap->pages[index]->id == page_id) {
-         page = heap->pages[index];
+
+   u64 low = 0;
+   u64 high = heap->page_count - 1;
+
+   while (low < high) {
+      auto mid = (high + low) >> 1UL;
+      auto cur_page = heap->pages[mid];
+      auto cur_page_id = cur_page->id;
+
+      if (cur_page_id < page_id) {
+         low = mid + 1;
+      } else if (cur_page_id > page_id) {
+         high = mid - 1;
+      } else {
+         page = cur_page;
          break;
       }
    }
@@ -224,6 +237,8 @@ void heap_read(Heap *heap, const char *filename) {
 
    arena_free(&arena);
 
+   arena_stats_print_(&heap_allocator, "before pages");
+
    heap->pages = std_alloc_array(heap->allocator, Page*, reader.page_table.count);
    for (auto cursor = th_cursor_start(&reader.page_table); th_cursor_valid(&reader.page_table,
                                                                            cursor); cursor = th_cursor_step(
@@ -237,6 +252,25 @@ void heap_read(Heap *heap, const char *filename) {
       if (a->id > b->id) return 1;
       return 0;
    });
+
+   u64 last_page_id = 0;
+   u64 xpos = 0;
+   for (i64 page_index = 0; page_index < heap->page_count; page_index++) {
+      auto page = heap->pages[page_index];
+      auto page_id = page->id;
+
+      if (last_page_id == 0) last_page_id = page_id;
+
+      u64 offset = page_id - last_page_id;
+      if (offset > 1000) offset = 1000;
+      xpos += offset;
+
+      last_page_id = page_id;
+      page->xpos = xpos;
+   }
+   heap->max_xpos = xpos;
+
+   arena_stats_print_(&heap_allocator, "before referenced_by");
 
    ArrayListCursor cursor = {};
    while (arl_cursor_step(&heap->objects, &cursor)) {
@@ -253,7 +287,7 @@ void heap_read(Heap *heap, const char *filename) {
       }
    }
 
-   arena_stats_print(&heap_allocator);
+   arena_stats_print_(&heap_allocator, "finished");
 
    fclose(input);
    free(buffer);
