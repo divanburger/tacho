@@ -5,44 +5,75 @@
 #pragma once
 
 #include <cstdint>
+#include <cstdlib>
+#include <cstddef>
 
 #include "types.h"
+#include "allocator.h"
 
-template<typename T>
-struct Array {
-   i64 count;
-   i64 capacity;
-   T *data;
+struct ArrayHeader {
+   Allocator *allocator;
+   u32 len;
+   u32 cap;
+   char *buffer[1];
 };
 
-template<typename T>
-void array_init(Array<T> *array) {
-   array->count = 0;
-   array->data = 0;
-}
+#define ahdr(array) ((ArrayHeader *)((char *)(array) - offsetof(ArrayHeader, buffer)))
+#define alen(array) ((array) ? ahdr((array))->len : 0)
+#define acap(array) ((array) ? ahdr((array))->cap : 0)
 
-template<typename T>
-void array_destroy(Array<T>* array, T item) {
-   raw_free(array->data);
-   array->count = 0;
-   array->capacity = 0;
-}
+void* ainit_(void *array, Allocator* allocator = nullptr);
+void afree_(void *array);
+void *afit_(void *array, u32 count, u32 element_size);
+void *asetcap_(void *array, u32 new_cap, u32 element_size);
+void *acat_(void *array, void* other, u32 element_size);
 
-template<typename T>
-void array_push(Array<T>* array, T item) {
-   if (array->length >= array->capacity) array_grow(array);
-   array->data[array->length++] = item;
-}
+#define ainit(array, ...) ((array) = (decltype(array))ainit_(array, __VA_ARGS__))
+#define afree(array) (afree_((array)), (array) = nullptr)
+#define asetcap(array, new_cap) (asetcap_((array), (new_cap), sizeof(*(array))))
+#define ashrink(array) ((array) = (decltype(array))asetcap_((array), alen((array)), sizeof(*(array))))
+#define apush(array, item) ((array) = (decltype(array))afit_((array), alen(array) + 1, sizeof(*array)), array[ahdr(array)->len++] = (item))
+#define adel(array, index) (alen((array)) > (index) ? ((array)[(index)] = (array)[--ahdr((array))->len]) : 0)
+#define acat(array, other) ((array) = (decltype(array))acat_((array), (other), sizeof(*array)))
 
-template<typename T>
-void array_grow(Array<T>* array) {
-   auto old_count = array->count;
-   auto old_data = array->data;
+inline void test_array() {
+   int *numbers = nullptr;
+   int *others = nullptr;
 
-   array->capacity = min(array->capacity * 2, 8);
-   array->data = ((T *) raw_alloc_size(sizeof(T) * array->capacity));
+   apush(numbers, 2);
+   apush(numbers, 4);
+   apush(numbers, 6);
+   apush(numbers, 1);
+   adel(numbers, 1);
+   adel(numbers, 10);
+   apush(numbers, 2);
+   adel(numbers, 3);
+   apush(numbers, 3);
+   ashrink(numbers);
+   apush(numbers, 10);
+   apush(numbers, 11);
+   apush(numbers, 12);
+   ashrink(numbers);
+   apush(numbers, 13);
 
-   for (i64 index = 0; index < old_count; index++) array->data[index] = old_data[index];
+   apush(others, 100);
+   apush(others, 200);
+   apush(others, 300);
 
-   raw_free(old_data);
+   for (int i = 0; i < alen(numbers); i++) printf("%i, ", numbers[i]);
+   printf("\n");
+
+   for (int i = 0; i < alen(others); i++) printf("%i, ", others[i]);
+   printf("\n");
+
+   acat(numbers, others);
+
+   for (int i = 0; i < alen(numbers); i++) {
+      printf("%i, ", numbers[i]);
+   }
+   printf("\n");
+
+   afree(numbers);
+   afree(others);
+   afree(numbers);
 }

@@ -39,9 +39,9 @@ inline void *std_alloc_zero(Allocator *allocator, size_t size) {
 
 inline void std_free(Allocator *allocator, void *ptr) {
    if (allocator) {
-      return allocator->free(allocator, ptr);
+      allocator->free(allocator, ptr);
    } else {
-      return raw_free(ptr);
+      raw_free(ptr);
    }
 }
 

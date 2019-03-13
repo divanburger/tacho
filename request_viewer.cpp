@@ -11,6 +11,7 @@
 #include "ui.h"
 #include "colour.h"
 #include "cairo_helpers.h"
+#include "array.h"
 
 enum ColumnType {
    COL_UNKNOWN,
@@ -30,14 +31,14 @@ Colour column_colours[] = {{1.0,  0.67, 0.33},
                            {0.67, 0.33, 1.00}};
 
 struct Column {
-   const char *name;
+   String name;
    ColumnType type;
    i64 max;
    i64 min;
    bool enabled;
 
    i32 chosen;
-   ArrayList<String> values;
+   String *values;
 };
 
 struct Value {
@@ -118,7 +119,7 @@ void update_chart(UIContext *ctx, cairo_t *cr, i32rect area) {
          if (column->type == COL_ENUM && column->chosen >= 0) {
             Value *value = request->values + index;
 
-            String name = column->values.first->data[column->chosen];
+            String name = column->values[column->chosen];
             if (!str_equal(name, value->text)) request->included = false;
          }
       }
@@ -192,7 +193,7 @@ void update_settings(UIContext *ctx, cairo_t *cr, i32rect area) {
       column->enabled ? cairo_fill(cr) : cairo_stroke(cr);
 
       cairo_move_to(cr, area.x + 20 + 20, y + (entry_height - font_extents.height) / 2 + font_extents.ascent);
-      cairo_show_text(cr, column->name);
+      cairo_show_text(cr, column->name.data);
 
       y += entry_height;
    }
@@ -211,23 +212,22 @@ void update_settings(UIContext *ctx, cairo_t *cr, i32rect area) {
       }
 
       cairo_move_to(cr, area.x + 20, y + (entry_height - font_extents.height) / 2 + font_extents.ascent);
-      cairo_show_text(cr, column->name);
+      cairo_show_text(cr, column->name.data);
       y += entry_height;
 
-      ArrayListCursor cursor = {};
-      while (arl_cursor_step(&column->values, &cursor)) {
-         String name = *arl_cursor_get<String>(cursor);
+      for (i32 value_index = 0; value_index < alen(column->values); value_index++) {
+         String name = column->values[value_index];
 
          i32rect entry_rect = Rect(area.x, (int) y, area.w, entry_height);
          bool hover = inside(entry_rect, ctx->mouse_pos);
          if (hover && ctx->click_went_up) {
-            column->chosen = cursor.index;
+            column->chosen = value_index;
             ctx->dirty = true;
          }
 
          cairo_new_path(cr);
          cairo_arc(cr, area.x + 20 + 10, y + entry_height / 2, 4, 0, M_PI * 2);
-         column->chosen == cursor.index ? cairo_fill(cr) : cairo_stroke(cr);
+         column->chosen == value_index ? cairo_fill(cr) : cairo_stroke(cr);
 
          cairo_move_to(cr, area.x + 20 + 20, y + (entry_height - font_extents.height) / 2 + font_extents.ascent);
          cairo_show_text(cr, name.data);
@@ -270,7 +270,7 @@ bool parse_tag(Reader *reader) {
 
    i32 column_index = -1;
    for (i32 i = 0; i < array_size(column_names); i++) {
-      if (str_equal(tag_name, column_names[i])) {
+      if (str_equal(tag_name, reader->log->columns[i].name)) {
          column_index = i;
          break;
       }
@@ -311,15 +311,14 @@ bool parse_tag(Reader *reader) {
       }
       case COL_ENUM: {
          bool found = false;
-         ArrayListCursor cursor = {};
-         while (arl_cursor_step(&column->values, &cursor)) {
-            if (str_equal(*arl_cursor_get<String>(cursor), value->text)) {
+         for (i32 value_index = 0; value_index < alen(column->values); value_index++) {
+            if (str_equal(column->values[value_index], value->text)) {
                found = true;
                break;
             }
          }
 
-         if (!found) arl_push(&column->values, value->text);
+         if (!found) apush(column->values, value->text);
          break;
       }
       default:
@@ -356,13 +355,13 @@ int main(int argc, char **args) {
    state.log.columns = std_alloc_array_zero(nullptr, Column, state.log.column_count);
    for (i32 index = 0; index < state.log.column_count; index++) {
       Column *column = state.log.columns + index;
-      column->name = column_names[index];
+      column->name = str_copy(state.allocator, column_names[index]);
       column->type = column_types[index];
       column->enabled = false;
       column->min = 0;
       column->max = 0;
       column->chosen = -1;
-      arl_init(&column->values, state.allocator);
+      ainit(column->values, state.allocator);
    }
 
    Reader reader = {};
