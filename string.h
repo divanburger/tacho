@@ -28,6 +28,7 @@ String str_copy(Allocator *allocator, const char* str);
 String str_copy(Allocator *allocator, String str);
 
 bool str_equal(String a, String b);
+bool str_equal(String a, const char* b);
 bool str_start_with(String a, String b);
 int str_cmp(String a, String b);
 

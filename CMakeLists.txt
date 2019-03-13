@@ -13,6 +13,12 @@ add_executable(tacho main.cpp string.cpp timeline.cpp memory.cpp files.cpp ui.cp
 
 target_link_libraries(tacho ${SDL2_LIBRARIES} cairo)
 
+
 add_executable(output_label output_label.cpp)
 
 target_link_libraries(output_label)
+
+
+add_executable(request_viewer request_viewer.cpp string.cpp memory.cpp files.cpp ui.cpp hash_table.cpp array.cpp json.cpp allocator.cpp)
+
+target_link_libraries(request_viewer ${SDL2_LIBRARIES} cairo)
