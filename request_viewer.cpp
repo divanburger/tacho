@@ -21,11 +21,13 @@ enum ColumnType {
 const char *column_names[] = {"PID", "method", "path", "format", "controller", "action", "status", "duration",
                               "gc_count", "gc_live_slots", "gc_live_slots_d", "gc_alloc_pages", "gc_alloc_pages_d",
                               "gc_sorted_pages", "gc_sorted_pages_d", "user"};
-const ColumnType column_types[] = {COL_ENUM, COL_ENUM, COL_UNKNOWN, COL_UNKNOWN, COL_UNKNOWN, COL_UNKNOWN,
-                                   COL_UNKNOWN, COL_INTEGER, COL_INTEGER, COL_INTEGER, COL_INTEGER, COL_INTEGER,
+const ColumnType column_types[] = {COL_ENUM, COL_UNKNOWN, COL_UNKNOWN, COL_UNKNOWN, COL_UNKNOWN, COL_UNKNOWN,
+                                   COL_ENUM, COL_INTEGER, COL_INTEGER, COL_INTEGER, COL_INTEGER, COL_INTEGER,
                                    COL_INTEGER, COL_INTEGER, COL_INTEGER, COL_UNKNOWN};
 
-Colour column_colours[] = {{1.0, 0.67, 0.33}, {0.33, 1.00, 0.67}, {0.67, 0.33, 1.00}};
+Colour column_colours[] = {{1.0,  0.67, 0.33},
+                           {0.33, 1.00, 0.67},
+                           {0.67, 0.33, 1.00}};
 
 struct Column {
    const char *name;
@@ -73,9 +75,38 @@ struct Reader {
 struct {
    Allocator *allocator;
    Log log;
+
+   double draw_time_start;
+   double draw_time_width;
+
+   double click_time;
 } state;
 
 void update_chart(UIContext *ctx, cairo_t *cr, i32rect area) {
+   if (state.draw_time_width <= 0) {
+      state.draw_time_start = state.log.start_time;
+      state.draw_time_width = state.log.end_time - state.log.start_time;
+   }
+
+   if (ctx->click_went_down) state.click_time = state.draw_time_start;
+
+   if (ctx->click) {
+      state.draw_time_start = state.click_time +
+                              ((ctx->click_mouse_pos.x - ctx->mouse_pos.x) * state.draw_time_width) / area.w;
+   }
+
+   f64 mouse_time = state.draw_time_start + ((ctx->mouse_pos.x - area.x) * state.draw_time_width) / area.w;
+
+   bool inside_area = inside(area, ctx->mouse_pos.x, ctx->mouse_pos.y);
+   if (inside_area) {
+      f64 zoom_factor = (ctx->mouse_delta_z > 0 ? (1.0 / 1.1) : 1.1);
+      int zoom_iters = (ctx->mouse_delta_z > 0 ? ctx->mouse_delta_z : -ctx->mouse_delta_z);
+      for (int i = 0; i < zoom_iters; i++) {
+         state.draw_time_width *= zoom_factor;
+      }
+      state.draw_time_start = (i64) (mouse_time - ((ctx->mouse_pos.x - area.x) * state.draw_time_width) / area.w);
+   }
+
    ArrayListCursor cursor = {};
    while (arl_cursor_step(&state.log.requests, &cursor)) {
       auto request = arl_cursor_get<Request>(cursor);
@@ -101,6 +132,7 @@ void update_chart(UIContext *ctx, cairo_t *cr, i32rect area) {
 
       i64 last_time = -1;
 
+      cairo_new_path(cr);
       cairo_set_source_rgb(cr, column_colours[column_colour_index]);
       column_colour_index = (column_colour_index + 1) % 4;
 
@@ -112,15 +144,14 @@ void update_chart(UIContext *ctx, cairo_t *cr, i32rect area) {
          Value *value = request->values + index;
          if (!value->given) continue;
 
-         double x =
-               (double) (request->time - state.log.start_time) * area.w / (state.log.end_time - state.log.start_time);
+         double x = (request->time - state.draw_time_start) * area.w / state.draw_time_width;
          double y = area.h - (double) (value->integer - column->min) * area.h / (column->max - column->min);
 
-         if (last_time < request->time - 1) {
-            cairo_move_to(cr, x, y);
-         } else {
+//         if (last_time < request->time - 1) {
+//            cairo_move_to(cr, x, y);
+//         } else {
             cairo_line_to(cr, x, y);
-         }
+//         }
 
          last_time = request->time;
       }
