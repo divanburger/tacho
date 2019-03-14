@@ -55,18 +55,27 @@ String as_string(char *str) {
 
 bool str_equal(String a, String b) {
    if (a.length != b.length) return false;
-   return (strncmp(a.data, b.data, (size_t)a.length) == 0);
+   for (i32 i = 0; i < a.length; i++) {
+      if (a.data[i] != b.data[i]) return false;
+   }
+   return true;
 }
 
 bool str_equal(String a, const char* b) {
    auto b_length = strlen(b);
    if (a.length != b_length) return false;
-   return (strncmp(a.data, b, (size_t)a.length) == 0);
+   for (i32 i = 0; i < a.length; i++) {
+      if (a.data[i] != b[i]) return false;
+   }
+   return true;
 }
 
 bool str_start_with(String a, String b) {
    if (a.length < b.length) return false;
-   return (strncmp(a.data, b.data, (size_t)b.length) == 0);
+   for (i32 i = 0; i < b.length; i++) {
+      if (a.data[i] != b.data[i]) return false;
+   }
+   return true;
 }
 
 int str_cmp(String a, String b) {

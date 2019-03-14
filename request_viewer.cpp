@@ -19,6 +19,13 @@ enum ColumnType {
    COL_ENUM
 };
 
+enum GroupByTime {
+   GROUPBY_NONE,
+   GROUPBY_SECOND,
+   GROUPBY_MINUTE,
+   GROUPBY_HOUR
+};
+
 const char *column_names[] = {"PID", "method", "path", "format", "controller", "action", "status", "duration",
                               "gc_count", "gc_live_slots", "gc_live_slots_d", "gc_alloc_pages", "gc_alloc_pages_d",
                               "gc_sorted_pages", "gc_sorted_pages_d", "user"};
@@ -26,9 +33,14 @@ const ColumnType column_types[] = {COL_ENUM, COL_UNKNOWN, COL_UNKNOWN, COL_UNKNO
                                    COL_ENUM, COL_INTEGER, COL_INTEGER, COL_INTEGER, COL_INTEGER, COL_INTEGER,
                                    COL_INTEGER, COL_INTEGER, COL_INTEGER, COL_UNKNOWN};
 
-Colour column_colours[] = {{1.0,  0.67, 0.33},
+Colour column_colours[] = {{0.67, 1.00, 0.33},
+                           {1.0,  0.33, 0.67},
+                           {1.0,  0.67, 0.33},
+                           {0.33, 0.67, 1.00},
                            {0.33, 1.00, 0.67},
                            {0.67, 0.33, 1.00}};
+
+using ColumnMask = u32;
 
 struct Column {
    String name;
@@ -41,21 +53,24 @@ struct Column {
    String *values;
 };
 
-struct Value {
+union Value {
    String text;
+   i64 enum_id;
    i64 integer;
-   bool given;
 };
 
 struct Request {
    i64 time;
    Value *values;
+   u32 given;
    bool included;
 };
 
 struct Log {
    Allocator *allocator;
-   ArrayList<Request> requests;
+
+   i32 request_count;
+   Request *requests;
 
    i32 column_count;
    Column *columns;
@@ -68,14 +83,18 @@ struct Reader {
    i64 line_no;
    char *ptr;
 
-   Allocator *allocator;
    Log *log;
    Request request;
+
+   Request *requests;
 };
 
 struct {
    Allocator *allocator;
    Log log;
+
+   GroupByTime group_by;
+   bool refilter;
 
    double draw_time_start;
    double draw_time_width;
@@ -85,6 +104,7 @@ struct {
 
 void update_chart(UIContext *ctx, cairo_t *cr, i32rect area) {
    if (state.draw_time_width <= 0) {
+      state.group_by = GROUPBY_SECOND;
       state.draw_time_start = state.log.start_time;
       state.draw_time_width = state.log.end_time - state.log.start_time;
    }
@@ -108,53 +128,66 @@ void update_chart(UIContext *ctx, cairo_t *cr, i32rect area) {
       state.draw_time_start = (i64) (mouse_time - ((ctx->mouse_pos.x - area.x) * state.draw_time_width) / area.w);
    }
 
-   ArrayListCursor cursor = {};
-   while (arl_cursor_step(&state.log.requests, &cursor)) {
-      auto request = arl_cursor_get<Request>(cursor);
-      request->included = true;
+   if (state.refilter) {
+      state.refilter = false;
 
-      for (i32 index = 0; index < state.log.column_count; index++) {
-         Column *column = state.log.columns + index;
+      for (i32 request_index = 0; request_index < state.log.request_count; request_index++) {
+         auto request = state.log.requests + request_index;
+         request->included = true;
 
-         if (column->type == COL_ENUM && column->chosen >= 0) {
-            Value *value = request->values + index;
+         for (i32 column_index = 0; column_index < state.log.column_count; column_index++) {
+            Column *column = state.log.columns + column_index;
 
-            String name = column->values[column->chosen];
-            if (!str_equal(name, value->text)) request->included = false;
+            if (column->type == COL_ENUM && column->chosen >= 0) {
+               Value *value = request->values + column_index;
+               if (value->enum_id != column->chosen) {
+                  request->included = false;
+                  break;
+               }
+            }
          }
       }
    }
 
-   i32 column_colour_index = 0;
+   // TODO: @Speed Convert these to binary searches
+   i32 draw_start_index, draw_end_index;
+   {
+      for (draw_start_index = 0; draw_start_index < state.log.request_count; draw_start_index++) {
+         if (state.log.requests[draw_start_index].time >= state.draw_time_start) break;
+      }
 
-   for (i32 index = 0; index < state.log.column_count; index++) {
-      Column *column = state.log.columns + index;
+      draw_start_index--;
+      if (draw_start_index < 0) draw_start_index = 0;
+
+      for (draw_end_index = draw_start_index; draw_end_index < state.log.request_count; draw_end_index++) {
+         if (state.log.requests[draw_end_index].time > state.draw_time_start + state.draw_time_width) break;
+      }
+
+      draw_end_index++;
+      if (draw_end_index >= state.log.request_count) draw_end_index = state.log.request_count - 1;
+   }
+
+   for (i32 column_index = 0; column_index < state.log.column_count; column_index++) {
+      Column *column = state.log.columns + column_index;
+      ColumnMask column_mask = (1UL << (ColumnMask)column_index);
       if (!column->enabled || column->type != COL_INTEGER) continue;
 
-      i64 last_time = -1;
-
       cairo_new_path(cr);
-      cairo_set_source_rgb(cr, column_colours[column_colour_index]);
-      column_colour_index = (column_colour_index + 1) % 4;
+      cairo_set_source_rgb(cr, column_colours[column_index % array_size(column_colours)]);
 
-      ArrayListCursor cursor = {};
-      while (arl_cursor_step(&state.log.requests, &cursor)) {
-         auto request = arl_cursor_get<Request>(cursor);
+      double x_factor = area.w / state.draw_time_width;
+      double y_factor = (double)area.h / (column->max - column->min);
+
+      for (i32 request_index = draw_start_index; request_index < draw_end_index; request_index++) {
+         auto request = state.log.requests + request_index;
          if (!request->included) continue;
+         if ((request->given & column_mask) == 0) continue;
 
-         Value *value = request->values + index;
-         if (!value->given) continue;
+         Value *value = request->values + column_index;
+         double x = (request->time - state.draw_time_start) * x_factor;
+         double y = area.h - (value->integer - column->min) * y_factor;
 
-         double x = (request->time - state.draw_time_start) * area.w / state.draw_time_width;
-         double y = area.h - (double) (value->integer - column->min) * area.h / (column->max - column->min);
-
-//         if (last_time < request->time - 1) {
-//            cairo_move_to(cr, x, y);
-//         } else {
-            cairo_line_to(cr, x, y);
-//         }
-
-         last_time = request->time;
+         cairo_line_to(cr, x, y);
       }
 
       cairo_stroke(cr);
@@ -171,7 +204,6 @@ void update_settings(UIContext *ctx, cairo_t *cr, i32rect area) {
    cairo_rectangle(cr, area.x, area.y, area.w, area.h);
    cairo_fill(cr);
 
-   cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
 
    cairo_font_extents_t font_extents;
    cairo_font_extents(cr, &font_extents);
@@ -186,12 +218,15 @@ void update_settings(UIContext *ctx, cairo_t *cr, i32rect area) {
       if (hover && ctx->click_went_up) {
          column->enabled = !column->enabled;
          ctx->dirty = true;
+         state.refilter = true;
       }
 
+      cairo_set_source_rgb(cr, column_colours[index % array_size(column_colours)]);
       cairo_rectangle(cr, area.x + 20 + 6, y + 6, 8, 8);
 
       column->enabled ? cairo_fill(cr) : cairo_stroke(cr);
 
+      cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
       cairo_move_to(cr, area.x + 20 + 20, y + (entry_height - font_extents.height) / 2 + font_extents.ascent);
       cairo_show_text(cr, column->name.data);
 
@@ -209,6 +244,7 @@ void update_settings(UIContext *ctx, cairo_t *cr, i32rect area) {
       if (hover && ctx->click_went_up) {
          column->chosen = -1;
          ctx->dirty = true;
+         state.refilter = true;
       }
 
       cairo_move_to(cr, area.x + 20, y + (entry_height - font_extents.height) / 2 + font_extents.ascent);
@@ -218,11 +254,12 @@ void update_settings(UIContext *ctx, cairo_t *cr, i32rect area) {
       for (i32 value_index = 0; value_index < alen(column->values); value_index++) {
          String name = column->values[value_index];
 
-         i32rect entry_rect = Rect(area.x, (int) y, area.w, entry_height);
-         bool hover = inside(entry_rect, ctx->mouse_pos);
-         if (hover && ctx->click_went_up) {
+         i32rect option_rect = Rect(area.x, (int) y, area.w, entry_height);
+         bool option_hover = inside(option_rect, ctx->mouse_pos);
+         if (option_hover && ctx->click_went_up) {
             column->chosen = value_index;
             ctx->dirty = true;
+            state.refilter = true;
          }
 
          cairo_new_path(cr);
@@ -248,8 +285,8 @@ void update(UIContext *ctx, cairo_t *cr) {
 
    cairo_set_line_width(cr, 1.0);
 
-   update_chart(ctx, cr, Rect(0, 0, ctx->width - 200, ctx->height));
    update_settings(ctx, cr, Rect(ctx->width - 200, 0, 200, ctx->height));
+   update_chart(ctx, cr, Rect(0, 0, ctx->width - 200, ctx->height));
 }
 
 bool parse_tag(Reader *reader) {
@@ -283,6 +320,7 @@ bool parse_tag(Reader *reader) {
       if (*reader->ptr == '}') hash_depth--;
       if (*reader->ptr == ' ' && hash_depth <= 0) break;
    }
+   String value_text = {(i32) (reader->ptr - value_ptr), value_ptr};
 
    if (column_index == -1) {
 //      printf("%lu: Ignored tag: %s\n", reader->line_no, tag_ptr);
@@ -290,39 +328,48 @@ bool parse_tag(Reader *reader) {
    }
 
    if (!reader->request.values) {
-      reader->request.values = std_alloc_array_zero(reader->allocator, Value, log->column_count);
+      reader->request.values = std_alloc_array_zero(reader->log->allocator, Value, log->column_count);
    }
 
-   Value *value = reader->request.values + column_index;
-   value->given = true;
-   value->text = str_copy(reader->allocator, value_ptr, (i32) (reader->ptr - value_ptr));
-
    Column *column = log->columns + column_index;
+   ColumnMask column_mask = 1UL << (ColumnMask)column_index;
+
+   Value *value = reader->request.values + column_index;
+   reader->request.given |= column_mask;
+
    switch (column->type) {
       case COL_INTEGER: {
-         if (value->text.length == 0) {
-            value->given = false;
+         if (value_text.length == 0) {
+            reader->request.given &= ~column_mask;
          } else {
-            value->integer = strtol(value->text.data, nullptr, 10);
+            value->integer = strtol(value_text.data, nullptr, 10);
             if (column->min > value->integer) column->min = value->integer;
             if (column->max < value->integer) column->max = value->integer;
          }
          break;
       }
       case COL_ENUM: {
-         bool found = false;
+         i32 found = -1;
          for (i32 value_index = 0; value_index < alen(column->values); value_index++) {
-            if (str_equal(column->values[value_index], value->text)) {
-               found = true;
+            if (str_equal(column->values[value_index], value_text)) {
+               found = value_index;
                break;
             }
          }
 
-         if (!found) apush(column->values, value->text);
+         if (found == -1) {
+            found = alen(column->values);
+            auto text = str_copy(reader->log->allocator, value_text);
+            apush(column->values, text);
+         }
+
+         value->enum_id = found;
          break;
       }
-      default:
+      default: {
+         value->text = str_copy(reader->log->allocator, value_text);
          break;
+      }
    }
 
    return true;
@@ -343,10 +390,9 @@ int main(int argc, char **args) {
    int buffer_size = 1024 * 1024 * 16;
    char *buffer = std_alloc_array(nullptr, char, buffer_size);
 
+
    ArenaAllocator arena = arena_make();
    state.allocator = (Allocator *) &arena;
-
-   arl_init(&state.log.requests, state.allocator);
 
    state.log.start_time = INT64_MAX;
    state.log.end_time = INT64_MIN;
@@ -365,9 +411,10 @@ int main(int argc, char **args) {
    }
 
    Reader reader = {};
-   reader.allocator = state.allocator;
    reader.log = &state.log;
+   ainit(reader.requests, nullptr);
 
+   auto read_start_time = time(nullptr);
    while (fgets(buffer, buffer_size, input)) {
       reader.line_no++;
 
@@ -420,8 +467,16 @@ int main(int argc, char **args) {
          }
       }
 
-      arl_push(&state.log.requests, reader.request);
+      apush(reader.requests, reader.request);
    }
+
+   printf("Read time: %lis\n", time(nullptr) - read_start_time);
+
+   state.log.request_count = alen(reader.requests);
+   printf("Requests: %i (%li)\n", state.log.request_count, sizeof(Request));
+
+   state.log.requests = std_alloc_array(state.allocator, Request, state.log.request_count);
+   memcpy(state.log.requests, reader.requests, state.log.request_count * sizeof(Request));
 
    arena_stats_print(&arena);
 
