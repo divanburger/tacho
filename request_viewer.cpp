@@ -169,14 +169,14 @@ void update_chart(UIContext *ctx, cairo_t *cr, i32rect area) {
 
    for (i32 column_index = 0; column_index < state.log.column_count; column_index++) {
       Column *column = state.log.columns + column_index;
-      ColumnMask column_mask = (1UL << (ColumnMask)column_index);
+      ColumnMask column_mask = (1UL << (ColumnMask) column_index);
       if (!column->enabled || column->type != COL_INTEGER) continue;
 
       cairo_new_path(cr);
       cairo_set_source_rgb(cr, column_colours[column_index % array_size(column_colours)]);
 
       double x_factor = area.w / state.draw_time_width;
-      double y_factor = (double)area.h / (column->max - column->min);
+      double y_factor = (double) area.h / (column->max - column->min);
 
       for (i32 request_index = draw_start_index; request_index < draw_end_index; request_index++) {
          auto request = state.log.requests + request_index;
@@ -332,7 +332,7 @@ bool parse_tag(Reader *reader) {
    }
 
    Column *column = log->columns + column_index;
-   ColumnMask column_mask = 1UL << (ColumnMask)column_index;
+   ColumnMask column_mask = 1UL << (ColumnMask) column_index;
 
    Value *value = reader->request.values + column_index;
    reader->request.given |= column_mask;
@@ -377,14 +377,21 @@ bool parse_tag(Reader *reader) {
 
 int main(int argc, char **args) {
    if (argc != 2) {
-      printf("  Usage: %s <filename>", args[0]);
+      printf("  Usage: %s <filename>\n\n", args[0]);
       return 1;
    }
 
+   FILE *input = nullptr;
+
    char *filename = args[1];
-   FILE *input = fopen(filename, "r");
-   if (!input) {
-      fprintf(stderr, "Unknown file: %s", filename);
+   if (strcmp(filename, "-") == 0) {
+      input = stdin;
+   } else {
+      input = fopen(filename, "r");
+      if (!input) {
+         fprintf(stderr, "Unknown file: %s\n", filename);
+         return 2;
+      }
    }
 
    int buffer_size = 1024 * 1024 * 16;
@@ -469,6 +476,7 @@ int main(int argc, char **args) {
 
       apush(reader.requests, reader.request);
    }
+   fclose(input);
 
    printf("Read time: %lis\n", time(nullptr) - read_start_time);
 
