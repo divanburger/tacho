@@ -69,7 +69,6 @@ struct Request {
 struct Log {
    Allocator *allocator;
 
-   i32 request_count;
    Request *requests;
 
    i32 column_count;
@@ -80,13 +79,14 @@ struct Log {
 };
 
 struct Reader {
+   char* filename;
+   bool follow;
+
    i64 line_no;
    char *ptr;
 
    Log *log;
    Request request;
-
-   Request *requests;
 };
 
 struct {
@@ -94,12 +94,14 @@ struct {
    Log log;
 
    GroupByTime group_by;
-   bool refilter;
 
    double draw_time_start;
    double draw_time_width;
 
    double click_time;
+
+   volatile bool refilter;
+   volatile bool initialized;
 } state;
 
 void update_chart(UIContext *ctx, cairo_t *cr, i32rect area) {
@@ -131,7 +133,7 @@ void update_chart(UIContext *ctx, cairo_t *cr, i32rect area) {
    if (state.refilter) {
       state.refilter = false;
 
-      for (i32 request_index = 0; request_index < state.log.request_count; request_index++) {
+      for (i32 request_index = 0; request_index < alen(state.log.requests); request_index++) {
          auto request = state.log.requests + request_index;
          request->included = true;
 
@@ -152,19 +154,19 @@ void update_chart(UIContext *ctx, cairo_t *cr, i32rect area) {
    // TODO: @Speed Convert these to binary searches
    i32 draw_start_index, draw_end_index;
    {
-      for (draw_start_index = 0; draw_start_index < state.log.request_count; draw_start_index++) {
+      for (draw_start_index = 0; draw_start_index < alen(state.log.requests); draw_start_index++) {
          if (state.log.requests[draw_start_index].time >= state.draw_time_start) break;
       }
 
       draw_start_index--;
       if (draw_start_index < 0) draw_start_index = 0;
 
-      for (draw_end_index = draw_start_index; draw_end_index < state.log.request_count; draw_end_index++) {
+      for (draw_end_index = draw_start_index; draw_end_index < alen(state.log.requests); draw_end_index++) {
          if (state.log.requests[draw_end_index].time > state.draw_time_start + state.draw_time_width) break;
       }
 
       draw_end_index++;
-      if (draw_end_index >= state.log.request_count) draw_end_index = state.log.request_count - 1;
+      if (draw_end_index >= alen(state.log.requests)) draw_end_index = alen(state.log.requests) - 1;
    }
 
    for (i32 column_index = 0; column_index < state.log.column_count; column_index++) {
@@ -285,8 +287,10 @@ void update(UIContext *ctx, cairo_t *cr) {
 
    cairo_set_line_width(cr, 1.0);
 
-   update_settings(ctx, cr, Rect(ctx->width - 200, 0, 200, ctx->height));
-   update_chart(ctx, cr, Rect(0, 0, ctx->width - 200, ctx->height));
+   if (state.initialized) {
+      update_settings(ctx, cr, Rect(ctx->width - 200, 0, 200, ctx->height));
+      update_chart(ctx, cr, Rect(0, 0, ctx->width - 200, ctx->height));
+   }
 }
 
 bool parse_tag(Reader *reader) {
@@ -375,21 +379,17 @@ bool parse_tag(Reader *reader) {
    return true;
 }
 
-int main(int argc, char **args) {
-   if (argc != 2) {
-      printf("  Usage: %s <filename>\n\n", args[0]);
-      return 1;
-   }
+int read_file(void* data) {
+   auto reader = (Reader*)data;
 
    FILE *input = nullptr;
 
-   char *filename = args[1];
-   if (strcmp(filename, "-") == 0) {
+   if (strcmp(reader->filename, "-") == 0) {
       input = stdin;
    } else {
-      input = fopen(filename, "r");
+      input = fopen(reader->filename, "r");
       if (!input) {
-         fprintf(stderr, "Unknown file: %s\n", filename);
+         fprintf(stderr, "Unknown file: %s\n", reader->filename);
          return 2;
       }
    }
@@ -397,9 +397,100 @@ int main(int argc, char **args) {
    int buffer_size = 1024 * 1024 * 16;
    char *buffer = std_alloc_array(nullptr, char, buffer_size);
 
+   bool reading = true;
+   bool new_requests = false;
+
+   while (reading) {
+      auto read_start_time = time(nullptr);
+      while (fgets(buffer, buffer_size, input)) {
+         reader->line_no++;
+
+         reader->request = {};
+         reader->ptr = buffer;
+
+         char *start_ptr = reader->ptr;
+         while ((*reader->ptr >= '0' && *reader->ptr <= '9') || *reader->ptr == '-') reader->ptr++;
+
+         if (*reader->ptr != ' ') {
+//         printf("%lu: Invalid line: %s\n", reader->line_no, buffer);
+            continue;
+         } else {
+            reader->ptr++;
+         }
+
+         while ((*reader->ptr >= '0' && *reader->ptr <= '9') || *reader->ptr == ':') reader->ptr++;
+
+         if (*reader->ptr != ' ') {
+//         printf("%lu: Invalid line: %s\n", reader->line_no, buffer);
+            continue;
+         } else {
+            reader->ptr++;
+         }
+
+         struct tm tm;
+         time_t epoch;
+         if (strptime(start_ptr, "%Y-%m-%d %H:%M:%S", &tm) != nullptr) {
+            reader->request.time = (i64) mktime(&tm);
+            if (state.log.start_time > reader->request.time) state.log.start_time = reader->request.time;
+            if (state.log.end_time < reader->request.time) state.log.end_time = reader->request.time;
+         } else {
+            printf("%lu: Invalid timestamp: %s\n", reader->line_no, buffer);
+            continue;
+         }
+
+         while (*reader->ptr) {
+            if (*reader->ptr == ' ') {
+               reader->ptr++;
+               continue;
+            }
+
+            if ((*reader->ptr >= 'a' && *reader->ptr <= 'z') || (*reader->ptr >= 'A' && *reader->ptr <= 'Z')) {
+               if (!parse_tag(reader)) {
+                  while (*reader->ptr && *reader->ptr != ' ') reader->ptr++;
+               }
+            } else {
+//            printf("%lu: Invalid line: %s\n", reader.line_no, buffer);
+               break;
+            }
+         }
+
+         apush(state.log.requests, reader->request);
+         new_requests = true;
+      }
+
+      if (ferror(input)) {
+         printf("Read failed\n");
+         break;
+      }
+
+      if (new_requests) {
+         printf("Read time: %lis\n", time(nullptr) - read_start_time);
+         printf("Requests: %i (%li)\n", alen(state.log.requests), sizeof(Request));
+
+         state.refilter = true;
+         state.initialized = true;
+         ui_context.dirty = true;
+      }
+
+      new_requests = false;
+      if (!reader->follow) break;
+      SDL_Delay(1000);
+   }
+
+   std_free(nullptr, buffer);
+   fclose(input);
+}
+
+int main(int argc, char **args) {
+   if (argc != 2) {
+      printf("  Usage: %s <filename>\n\n", args[0]);
+      return 1;
+   }
 
    ArenaAllocator arena = arena_make();
+   state.initialized = false;
    state.allocator = (Allocator *) &arena;
+   ainit(state.log.requests, nullptr);
 
    state.log.start_time = INT64_MAX;
    state.log.end_time = INT64_MIN;
@@ -418,77 +509,14 @@ int main(int argc, char **args) {
    }
 
    Reader reader = {};
+   reader.filename = args[1];
+   reader.follow = false;
    reader.log = &state.log;
-   ainit(reader.requests, nullptr);
 
-   auto read_start_time = time(nullptr);
-   while (fgets(buffer, buffer_size, input)) {
-      reader.line_no++;
-
-      reader.request = {};
-      reader.ptr = buffer;
-
-      char *start_ptr = reader.ptr;
-      while ((*reader.ptr >= '0' && *reader.ptr <= '9') || *reader.ptr == '-') reader.ptr++;
-
-      if (*reader.ptr != ' ') {
-//         printf("%lu: Invalid line: %s\n", reader.line_no, buffer);
-         continue;
-      } else {
-         reader.ptr++;
-      }
-
-      while ((*reader.ptr >= '0' && *reader.ptr <= '9') || *reader.ptr == ':') reader.ptr++;
-
-      if (*reader.ptr != ' ') {
-//         printf("%lu: Invalid line: %s\n", reader.line_no, buffer);
-         continue;
-      } else {
-         reader.ptr++;
-      }
-
-      struct tm tm;
-      time_t epoch;
-      if (strptime(start_ptr, "%Y-%m-%d %H:%M:%S", &tm) != nullptr) {
-         reader.request.time = (i64) mktime(&tm);
-         if (state.log.start_time > reader.request.time) state.log.start_time = reader.request.time;
-         if (state.log.end_time < reader.request.time) state.log.end_time = reader.request.time;
-      } else {
-         printf("%lu: Invalid timestamp: %s\n", reader.line_no, buffer);
-         continue;
-      }
-
-      while (*reader.ptr) {
-         if (*reader.ptr == ' ') {
-            reader.ptr++;
-            continue;
-         }
-
-         if ((*reader.ptr >= 'a' && *reader.ptr <= 'z') || (*reader.ptr >= 'A' && *reader.ptr <= 'Z')) {
-            if (!parse_tag(&reader)) {
-               while (*reader.ptr && *reader.ptr != ' ') reader.ptr++;
-            }
-         } else {
-//            printf("%lu: Invalid line: %s\n", reader.line_no, buffer);
-            break;
-         }
-      }
-
-      apush(reader.requests, reader.request);
-   }
-   fclose(input);
-
-   printf("Read time: %lis\n", time(nullptr) - read_start_time);
-
-   state.log.request_count = alen(reader.requests);
-   printf("Requests: %i (%li)\n", state.log.request_count, sizeof(Request));
-
-   state.log.requests = std_alloc_array(state.allocator, Request, state.log.request_count);
-   memcpy(state.log.requests, reader.requests, state.log.request_count * sizeof(Request));
-
-   arena_stats_print(&arena);
-
-   std_free(nullptr, buffer);
+   auto reader_thread = SDL_CreateThread(read_file, "Reader", &reader);
 
    ui_run(update);
+
+   int result = 0;
+   SDL_WaitThread(reader_thread, &result);
 }

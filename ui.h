@@ -24,7 +24,7 @@ struct UIContext {
    cairo_t *cairo;
 
    bool running;
-   bool dirty;
+   volatile bool dirty;
    int width;
    int height;
 
