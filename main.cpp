@@ -18,7 +18,7 @@ void show_help(const char *exe_name) {
    printf("\n\twatch DIRECTORY\n");
    printf("\t  Watch directory containing profiles\n");
    printf("\n\theap FILE\n");
-   printf("\t  Show heap\n");
+   printf("\t  Visualizes a ruby heap\n\t  Can be generated using 'ObjectSpace.dump_all' in ruby\n");
    printf("\n\thelp\n");
    printf("\t  Shows this help\n");
    printf("\n");
