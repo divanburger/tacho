@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "string.h"
+#include "str.h"
 
 enum FileType {
    FILE_TYPE_NOT_EXIST,

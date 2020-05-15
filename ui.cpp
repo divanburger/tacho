@@ -40,9 +40,13 @@ void ui_run(void (*update)(UIContext *, cairo_t *)) {
 
             ui_context.mouse_delta = {};
             ui_context.mouse_delta_z = 0;
-            ui_context.click_went_down = false;
-            ui_context.click_went_up = false;
-            ui_context.f64_click = false;
+
+            for (int i = 0; i < MAX_MOUSE_BUTTONS; i++) {
+               ui_context.click_went_down[i] = false;
+               ui_context.click_went_up[i] = false;
+               ui_context.double_click[i] = false;
+               ui_context.click_drag[i] = false;
+            }
 
             for (i32 i = 0; i < MAX_KEYS; i++) {
                ui_context.key_went_down[i] = false;
@@ -67,23 +71,33 @@ void ui_run(void (*update)(UIContext *, cairo_t *)) {
                   }
                      break;
                   case SDL_MOUSEBUTTONDOWN: {
-                     ui_context.mouse_pos = {event.button.x, event.button.y};
-                     ui_context.click_mouse_pos = ui_context.mouse_pos;
-                     ui_context.click = true;
-                     ui_context.click_went_down = true;
-                     ui_context.dirty = true;
+                     if (event.button.button > 0 && event.button.button <= 3) {
+                        int index = event.button.button - 1;
+                        ui_context.mouse_pos = {event.button.x, event.button.y};
+                        ui_context.click_mouse_pos[index] = ui_context.mouse_pos;
+                        ui_context.click[index] = true;
+                        ui_context.click_went_down[index] = true;
+                        ui_context.dirty = true;
+                     }
                   }
                      break;
                   case SDL_MOUSEBUTTONUP: {
-                     ui_context.mouse_pos = {event.button.x, event.button.y};
-                     ui_context.click = false;
-                     ui_context.click_went_up = true;
+                     if (event.button.button > 0 && event.button.button <= 3) {
+                        int index = event.button.button - 1;
+                        ui_context.mouse_pos = {event.button.x, event.button.y};
+                        ui_context.click[index] = false;
+                        ui_context.click_went_up[index] = true;
 
-                     if (ui_context.last_click >= ui_context.proc_time - 0.3) {
-                        ui_context.f64_click = true;
+                        auto dx = ui_context.mouse_pos.x - ui_context.click_mouse_pos[index].x;
+                        auto dy = ui_context.mouse_pos.y - ui_context.click_mouse_pos[index].y;
+                        if (dx*dx + dy*dy >= 9) ui_context.click_drag[index] = true;
+
+                        if (ui_context.last_click[index] >= ui_context.proc_time - 0.3) {
+                           ui_context.double_click [index]= true;
+                        }
+                        ui_context.last_click[index] = ui_context.proc_time;
+                        ui_context.dirty = true;
                      }
-                     ui_context.last_click = ui_context.proc_time;
-                     ui_context.dirty = true;
                   }
                      break;
                   case SDL_KEYDOWN: {
@@ -167,7 +181,7 @@ void ui_run(void (*update)(UIContext *, cairo_t *)) {
    SDL_Quit();
 }
 
-irect ui_scrollable_begin(const char *name, i32rect rect, i32vec2 content, i32 scroll_rate) {
+ScrollState ui_scrollable_begin(const char *name, i32rect rect, i32vec2 content, i32 scroll_rate) {
    auto cr = ui_context.cairo;
 
    auto scrollable = (UIScrollable *) ht_find(&ui_context.scrollables, (void *) name);
@@ -176,15 +190,19 @@ irect ui_scrollable_begin(const char *name, i32rect rect, i32vec2 content, i32 s
       ht_add(&ui_context.scrollables, (void *) name, (void *) scrollable);
    }
 
+   if (content.x != -1 && content.y != -1) {
+      if (scrollable->content != content) ui_context.dirty = true;
+      scrollable->content = content;
+   }
+
    scrollable->rect = rect;
-   scrollable->content = content;
    scrollable->hover = inside(rect, ui_context.mouse_pos);
 
    if (scrollable->hover) {
       scrollable->scroll -= ui_context.mouse_delta_z * scroll_rate;
    }
 
-   i32 scroll_max = content.y - rect.h;
+   i32 scroll_max = scrollable->content.y - rect.h;
    if (scrollable->scroll > scroll_max) scrollable->scroll = scroll_max;
    if (scrollable->scroll < 0) scrollable->scroll = 0;
 
@@ -192,23 +210,27 @@ irect ui_scrollable_begin(const char *name, i32rect rect, i32vec2 content, i32 s
    cairo_rectangle(cr, rect.x, rect.y, rect.w - 10, rect.h);
    cairo_clip(cr);
 
-   return irect{rect.x, rect.y - scrollable->scroll, rect.w - 10, rect.h};
+   ScrollState state = {};
+   state.mouse_offset = {0, scrollable->scroll};
+   state.rect = {rect.x, rect.y - scrollable->scroll, rect.w - 10, rect.h};
+   state.screen_area = {rect.x, rect.y, rect.w - 10, rect.h};
+   return state;
 }
 
-void ui_scrollable_end(const char *name) {
+void ui_scrollable_end(const char *name, i32vec2 content) {
    auto cr = ui_context.cairo;
 
    auto scrollable = (UIScrollable *) ht_find(&ui_context.scrollables, (void *) name);
    assert(scrollable);
    cairo_restore(ui_context.cairo);
 
-   auto content = scrollable->content;
    auto rect = scrollable->rect;
 
    i32 track_w = 10;
    i32 track_x = rect.x + rect.w - track_w;
 
-   bool hovered = (inside(Rect(track_x, rect.y, track_w, rect.h), ui_context.mouse_pos));
+   auto track_area = Rect(track_x, rect.y, track_w, rect.h);
+   bool hovered = inside(track_area, ui_context.mouse_pos);
 
    hovered ? cairo_set_source_rgb(cr, 0.3, 0.3, 0.3) : cairo_set_source_rgb(cr, 0.2, 0.2, 0.2);
    cairo_rectangle(cr, track_x, rect.y, track_w, rect.h);
@@ -217,11 +239,11 @@ void ui_scrollable_end(const char *name) {
    i32 track_start = 11;
    i32 track_height = rect.h - 22;
 
-   i32 scroll_max = content.y - rect.h;
-   f64 scroll_perc = min(content.y > 0 ? (f64) rect.h / content.y : 1.0, 1.0);
+   i32 scroll_max = scrollable->content.y - rect.h;
+   f64 scroll_perc = min(scrollable->content.y > 0 ? (f64) rect.h / scrollable->content.y : 1.0, 1.0);
    f64 scroll_height = track_height * scroll_perc;
 
-   if (hovered && ui_context.click) {
+   if (ui_context.click[0] && inside(track_area, ui_context.click_mouse_pos[0])) {
       auto perc = ((ui_context.mouse_pos.y - rect.y - track_start - scroll_height * 0.5) /
                    (track_height - scroll_height));
       perc = clamp(perc, 0.0, 1.0);
@@ -246,4 +268,9 @@ void ui_scrollable_end(const char *name) {
    cairo_line_to(cr, track_x + 8, rect.y + rect.h - 8);
    cairo_close_path(cr);
    cairo_fill(cr);
+
+   if (content.x != -1 && content.y != -1) {
+      if (scrollable->content != content) ui_context.dirty = true;
+      scrollable->content = content;
+   }
 }

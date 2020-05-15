@@ -6,7 +6,7 @@
 #include <cstdio>
 #include <ctime>
 #include "allocator.h"
-#include "string.h"
+#include "str.h"
 #include "array_list.h"
 #include "ui.h"
 #include "colour.h"

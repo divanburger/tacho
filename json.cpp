@@ -8,44 +8,32 @@ JsonNumber json_parse_number(const char **data) {
    JsonNumber number = {};
    number.type = JNUM_INTEGER;
 
-   const char* ptr = *data;
-   u64 base = 10;
-   bool negative = false;
-
+   const char *ptr = *data;
    if (*ptr == '0' && *(ptr + 1) == 'x') {
-      base = 16;
       number.type = JNUM_UNSIGNED;
       ptr += 2;
-   } else if (*ptr == '-') {
-      ptr++;
-      negative = true;
-   }
 
-   if (base == 10) {
       while (true) {
+         int value = 0;
          if (*ptr >= '0' && *ptr <= '9') {
-            number.value.i = number.value.i * 10 + (*ptr - '0');
-            ptr++;
-         } else {
-            break;
-         }
-      }
-      if (negative) number.value.i *= -1;
-   } else {
-      while (true) {
-         if (*ptr >= '0' && *ptr <= '9') {
-            number.value.i = number.value.i * 16 + (*ptr - '0');
-            ptr++;
+            value = (*ptr - '0');
          } else if (*ptr >= 'A' && *ptr <= 'F') {
-            number.value.i = number.value.i * 16 + (*ptr - 'A' + 10);
-            ptr++;
+            value = (*ptr - 'A' + 10);
          } else if (*ptr >= 'a' && *ptr <= 'f') {
-            number.value.i = number.value.i * 16 + (*ptr - 'a' + 10);
-            ptr++;
+            value = (*ptr - 'a' + 10);
          } else {
             break;
          }
+
+         number.value.i = number.value.i * 16 + value;
+         ptr++;
       }
+   } else {
+      while (*ptr >= '0' && *ptr <= '9') {
+         number.value.i = number.value.i * 10 + (*ptr - '0');
+         ptr++;
+      }
+      if (**data == '-') number.value.i *= -1;
    }
    assert(*data != ptr);
 
@@ -85,8 +73,8 @@ bool json_lexer_string(JsonLexer *lexer) {
    lexer->data++;
 
    const char *start = lexer->data;
-   while (true) {
-      if (*lexer->data == 0 || *lexer->data == '"') {
+   while (*lexer->data) {
+      if (*lexer->data == '"') {
          break;
       } else if (*lexer->data == '\\') {
          lexer->data++;
@@ -111,6 +99,24 @@ bool json_lexer_string(JsonLexer *lexer) {
    return true;
 }
 
+void json_init() {
+   json_first_char[' '] = JFCA_SKIP;
+   json_first_char['\r'] = JFCA_SKIP;
+   json_first_char['\n'] = JFCA_SKIP;
+   json_first_char['\t'] = JFCA_SKIP;
+   json_first_char['{'] = JFCA_TOKEN;
+   json_first_char['}'] = JFCA_TOKEN;
+   json_first_char['['] = JFCA_TOKEN;
+   json_first_char[']'] = JFCA_TOKEN;
+   json_first_char[':'] = JFCA_TOKEN;
+   json_first_char[','] = JFCA_TOKEN;
+   json_first_char['"'] = JFCA_STRING;
+   json_first_char['-'] = JFCA_NUMBER;
+   for (char c = '0'; c <= '9'; c++) json_first_char[c] = JFCA_NUMBER;
+   for (char c = 'a'; c <= 'z'; c++) json_first_char[c] = JFCA_KEYWORD;
+   for (char c = 'A'; c <= 'Z'; c++) json_first_char[c] = JFCA_KEYWORD;
+}
+
 bool json_lexer(JsonLexer *lexer, const char *data, Allocator *allocator) {
    arl_init(&lexer->tokens, allocator);
    lexer->allocator = allocator;
@@ -120,68 +126,27 @@ bool json_lexer(JsonLexer *lexer, const char *data, Allocator *allocator) {
    JsonTok token = {};
 
    while (*lexer->data) {
-      switch (*lexer->data) {
-         case ' ':
-         case '\r':
-         case '\n':
-         case '\t':
-            lexer->data++;
-            break;
-         case '{':
+      switch (json_first_char[*lexer->data]) {
+         case JFCA_TOKEN:
             token.index = (lexer->data - lexer->start);
             token.text = str_copy(lexer->allocator, lexer->data, 1);
-            token.type = JTOK_LBRACE;
+            token.type = (JsonTokType) *lexer->data;
             arl_push(&lexer->tokens, token);
+         case JFCA_SKIP:
             lexer->data++;
             break;
-         case '}':
-            token.index = (lexer->data - lexer->start);
-            token.text = str_copy(lexer->allocator, lexer->data, 1);
-            token.type = JTOK_RBRACE;
-            arl_push(&lexer->tokens, token);
-            lexer->data++;
-            break;
-         case '[':
-            token.index = (lexer->data - lexer->start);
-            token.text = str_copy(lexer->allocator, lexer->data, 1);
-            token.type = JTOK_LBRACKET;
-            arl_push(&lexer->tokens, token);
-            lexer->data++;
-            break;
-         case ']':
-            token.index = (lexer->data - lexer->start);
-            token.text = str_copy(lexer->allocator, lexer->data, 1);
-            token.type = JTOK_RBRACKET;
-            arl_push(&lexer->tokens, token);
-            lexer->data++;
-            break;
-         case ':':
-            token.index = (lexer->data - lexer->start);
-            token.text = str_copy(lexer->allocator, lexer->data, 1);
-            token.type = JTOK_COLON;
-            arl_push(&lexer->tokens, token);
-            lexer->data++;
-            break;
-         case ',':
-            token.index = (lexer->data - lexer->start);
-            token.text = str_copy(lexer->allocator, lexer->data, 1);
-            token.type = JTOK_COMMA;
-            arl_push(&lexer->tokens, token);
-            lexer->data++;
-            break;
-         case '"':
+         case JFCA_STRING:
             if (!json_lexer_string(lexer)) return false;
             break;
-         default:
-            if ((*lexer->data >= '0' && *lexer->data <= '9') || *lexer->data == '-') {
-               if (!json_lexer_number(lexer)) return false;
-            } else if ((*lexer->data >= 'a' && *lexer->data <= 'z') || (*lexer->data >= 'A' && *lexer->data <= 'Z')) {
-               if (!json_lexer_name(lexer)) return false;
-            } else {
-               printf("%u: Unknown character: %c\n", (u32)(lexer->data - lexer->start) + 1, *lexer->data);
-               return false;
-            }
+         case JFCA_NUMBER:
+            if (!json_lexer_number(lexer)) return false;
             break;
+         case JFCA_KEYWORD:
+            if (!json_lexer_name(lexer)) return false;
+            break;
+         default:
+            printf("%u: Unknown character: %c\n", (u32) (lexer->data - lexer->start) + 1, *lexer->data);
+            return false;
       }
    }
 
@@ -208,7 +173,8 @@ void json_next(JsonParser *parser) {
 
 bool json_expect(JsonParser *parser, JsonTokType type) {
    if (parser->token.type == type) return true;
-   printf("%u: Unexpected token type=%i '%.*s', expected %i\n", parser->token.index + 1, parser->token.type, str_prt(parser->token.text), type);
+   printf("%u: Unexpected token type=%i '%.*s', expected %i\n", parser->token.index + 1, parser->token.type,
+          str_prt(parser->token.text), type);
    return false;
 }
 
@@ -236,7 +202,9 @@ bool json_parse_value(JsonParser *parser) {
          json_next(parser);
          return true;
       case JTOK_NAME:
-         if (str_equal(parser->token.text, const_as_string("true")) || str_equal(parser->token.text, const_as_string("false")) || str_equal(parser->token.text, const_as_string("null"))) {
+         if (str_equal(parser->token.text, const_as_string("true")) ||
+             str_equal(parser->token.text, const_as_string("false")) ||
+             str_equal(parser->token.text, const_as_string("null"))) {
             if (parser->on_literal) parser->on_literal(parser->user_data, parser->token);
             json_next(parser);
             return true;
@@ -248,7 +216,8 @@ bool json_parse_value(JsonParser *parser) {
       case JTOK_LBRACKET:
          return json_parse_array(parser);
       default:
-         printf("%u: Unexpected token type=%i '%.*s', expected a string, literal, number or object\n", parser->token.index + 1, parser->token.type, str_prt(parser->token.text));
+         printf("%u: Unexpected token type=%i '%.*s', expected a string, literal, number or object\n",
+                parser->token.index + 1, parser->token.type, str_prt(parser->token.text));
          return false;
    }
 }
@@ -303,6 +272,6 @@ bool json_parse(JsonParser *parser, const char *data, Allocator *allocator) {
 //   }
 
    json_next(parser);
-   auto result =  json_parse_value(parser);
+   auto result = json_parse_value(parser);
    return result;
 }

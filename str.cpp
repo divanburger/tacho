@@ -7,7 +7,7 @@
 #include <cstdio>
 #include <cassert>
 
-#include "string.h"
+#include "str.h"
 #include "util.h"
 #include "math.h"
 

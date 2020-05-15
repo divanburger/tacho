@@ -158,12 +158,11 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
             String name = str_copy(thread->arena, method_buffer);
             String path = str_copy(thread->arena, name_buffer);
 
-            auto method = tm_find_or_create_method(timeline, name, path, call_body.line_no);
-            method->method_id = call_body.method_id;
+            auto section = tm_find_or_create_section(timeline, SECTION_METHOD, name, path, call_body.line_no);
+            section->method_id = call_body.method_id;
 
             auto event = tm_push_event(thread_info);
-            event->type = EVENT_METHOD_CALL;
-            event->method = method;
+            event->section = section;
             event->depth = thread_info->stack_index;
             event->thread_index = thread->index;
             event->start_time = time;
@@ -192,14 +191,15 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
                bool found = false;
                auto entry = thread_info->stack[stack_index];
 
-               if (entry->type == EVENT_METHOD_CALL && entry->method->method_id != method_id) {
-                  printf("Method ID mismatch : %i != %i : %.*s\n", entry->method->method_id, method_id,
-                         str_prt(entry->method->name));
+               auto section = entry->section;
+               if (section->type == SECTION_METHOD && section->method_id != method_id) {
+                  printf("Method ID mismatch : %i != %i : %.*s\n", entry->section->method_id, method_id,
+                         str_prt(entry->section->name));
                }
 
                auto test_entry = entry;
                while (stack_index > 0) {
-                  if (test_entry->type == EVENT_METHOD_CALL && test_entry->method->method_id == method_id) {
+                  if (test_entry->section->type == SECTION_METHOD && test_entry->section->method_id == method_id) {
                      found = true;
                      break;
                   }
@@ -210,14 +210,14 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
                if (found) {
                   thread_info->stack_index--;
 
-                  while (entry->type != EVENT_METHOD_CALL || entry->method->method_id != method_id) {
+                  while (entry->section->type != SECTION_METHOD || entry->section->method_id != method_id) {
                      entry->end_time = thread_info->last_time;
 
                      thread_info->stack_index--;
                      entry = thread_info->stack[thread_info->stack_index];
 
-                     if (entry->type == EVENT_METHOD_CALL) {
-                        printf(" - Closed method %i : %.*s\n", entry->method->method_id, str_prt(entry->method->name));
+                     if (entry->section->type == SECTION_METHOD) {
+                        printf(" - Closed method %i : %.*s\n", entry->section->method_id, str_prt(entry->section->name));
                      }
                   }
 
@@ -251,9 +251,12 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
             if (!thread) thread = tm_find_or_create_thread(timeline, 0, 0);
             ThreadInfo *thread_info = thread_infos + thread->index;
 
+            String name = str_copy(&timeline->arena, name_buffer, name_length);
+
+            auto section = tm_find_or_create_section(timeline, SECTION_CUSTOM, name, {}, 0);
+
             auto event = tm_push_event(thread_info);
-            event->type = EVENT_SECTION;
-            event->section_name = str_copy(&timeline->arena, name_buffer, name_length);
+            event->section = section;
             event->depth = thread_info->stack_index;
             event->thread_index = thread->index;
             event->start_time = time;
@@ -335,22 +338,23 @@ bool tm_read_file(Timeline *timeline, const char *filename) {
    return true;
 }
 
-TimelineMethod *tm_find_or_create_method(Timeline *timeline, String name, String path, int line_no) {
-   TimelineMethod *result;
+TimelineSection *tm_find_or_create_section(Timeline *timeline, SectionType type, String name, String path, int line_no) {
+   TimelineSection *result;
 
-   auto table = &timeline->method_table;
+   auto table = &timeline->section_table;
 
-   TimelineMethod method;
-   method.path = path;
-   method.name = name;
-   method.line_no = line_no;
+   TimelineSection section;
+   section.type = type;
+   section.path = path;
+   section.name = name;
+   section.line_no = line_no;
 
-   result = (TimelineMethod *) ht_find(table, method);
+   result = (TimelineSection *) ht_find(table, section);
    if (result) return result;
 
-   result = alloc_type(&timeline->arena, TimelineMethod);
-   *result = method;
-   ht_add(table, method, result);
+   result = alloc_type(&timeline->arena, TimelineSection);
+   *result = section;
+   ht_add(table, section, result);
    return result;
 }
 
@@ -366,7 +370,7 @@ void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics,
    auto table = &method_statistics_table;
    ht_init(table);
 
-   TimelineMethodStatistics *stack[1024];
+   TimelineSectionStatistics *stack[1024];
    i32 stack_index = 0;
 
    i16 thread_start = 0;
@@ -391,15 +395,15 @@ void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics,
          i64 clipped_end_time = event->end_time > end_time ? end_time : event->end_time;
 
          if (clipped_start_time < clipped_end_time) {
-            auto method_statistics = (TimelineMethodStatistics *) ht_find(table, (void *) event->method);
+            auto method_statistics = (TimelineSectionStatistics *) ht_find(table, (void *) event->section);
             if (!method_statistics) {
-               method_statistics = alloc_type(&temp, TimelineMethodStatistics);
-               method_statistics->method = event->method;
+               method_statistics = alloc_type(&temp, TimelineSectionStatistics);
+               method_statistics->method = event->section;
                method_statistics->total_time = 0;
                method_statistics->self_time = 0;
                method_statistics->child_time = 0;
                method_statistics->calls = 0;
-               ht_add(table, (void *) event->method, method_statistics);
+               ht_add(table, (void *) event->section, method_statistics);
             }
 
             i64 event_time = clipped_end_time - clipped_start_time;
@@ -407,14 +411,14 @@ void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics,
             if (event->depth > start_depth) {
                // Within self
                for (i32 index = start_depth; index < event->depth; index++) {
-                  if (stack[index] && stack[index]->method == event->method) {
+                  if (stack[index] && stack[index]->method == event->section) {
                      method_statistics->total_time -= event_time;
                      method_statistics->child_time -= event_time;
                      break;
                   }
                }
 
-               TimelineMethodStatistics *parent_stat = stack[event->depth - 1];
+               TimelineSectionStatistics *parent_stat = stack[event->depth - 1];
                if (parent_stat) {
                   parent_stat->child_time += event_time;
                }
@@ -434,11 +438,11 @@ void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics,
    }
 
    statistics->method_count = table->count;
-   statistics->method_statistics = alloc_array(&statistics->arena, TimelineMethodStatistics, table->count);
+   statistics->method_statistics = alloc_array(&statistics->arena, TimelineSectionStatistics, table->count);
 
-   TimelineMethodStatistics *ptr = statistics->method_statistics;
+   TimelineSectionStatistics *ptr = statistics->method_statistics;
    for (auto cursor = th_cursor_start(table); th_cursor_valid(table, cursor); cursor = th_cursor_step(table, cursor)) {
-      auto item = *(TimelineMethodStatistics *) th_item(table, cursor);
+      auto item = *(TimelineSectionStatistics *) th_item(table, cursor);
       item.self_time = item.total_time - item.child_time;
       *(ptr++) = item;
    }
@@ -458,8 +462,8 @@ void tm_sort_statistics(TimelineStatistics *statistics, MethodSortOrder order) {
    switch (order) {
       case MethodSortOrder::CALLS: {
          comparison_function = [](const void *a_ptr, const void *b_ptr) -> int {
-            auto a = (TimelineMethodStatistics *) a_ptr;
-            auto b = (TimelineMethodStatistics *) b_ptr;
+            auto a = (TimelineSectionStatistics *) a_ptr;
+            auto b = (TimelineSectionStatistics *) b_ptr;
 
             if (a->calls < b->calls) return 1;
             if (a->calls > b->calls) return -1;
@@ -469,8 +473,8 @@ void tm_sort_statistics(TimelineStatistics *statistics, MethodSortOrder order) {
          break;
       case MethodSortOrder::SELF_TIME: {
          comparison_function = [](const void *a_ptr, const void *b_ptr) -> int {
-            auto a = (TimelineMethodStatistics *) a_ptr;
-            auto b = (TimelineMethodStatistics *) b_ptr;
+            auto a = (TimelineSectionStatistics *) a_ptr;
+            auto b = (TimelineSectionStatistics *) b_ptr;
 
             if (a->self_time < b->self_time) return 1;
             if (a->self_time > b->self_time) return -1;
@@ -480,8 +484,8 @@ void tm_sort_statistics(TimelineStatistics *statistics, MethodSortOrder order) {
          break;
       case MethodSortOrder::TOTAL_TIME: {
          comparison_function = [](const void *a_ptr, const void *b_ptr) -> int {
-            auto a = (TimelineMethodStatistics *) a_ptr;
-            auto b = (TimelineMethodStatistics *) b_ptr;
+            auto a = (TimelineSectionStatistics *) a_ptr;
+            auto b = (TimelineSectionStatistics *) b_ptr;
 
             if (a->total_time < b->total_time) return 1;
             if (a->total_time > b->total_time) return -1;
@@ -491,26 +495,27 @@ void tm_sort_statistics(TimelineStatistics *statistics, MethodSortOrder order) {
          break;
       case MethodSortOrder::NAME: {
          comparison_function = [](const void *a_ptr, const void *b_ptr) -> int {
-            auto a = (TimelineMethodStatistics *) a_ptr;
-            auto b = (TimelineMethodStatistics *) b_ptr;
+            auto a = (TimelineSectionStatistics *) a_ptr;
+            auto b = (TimelineSectionStatistics *) b_ptr;
             return str_cmp(a->method->name, b->method->name);
          };
       }
          break;
    }
 
-   qsort(statistics->method_statistics, (size_t) statistics->method_count, sizeof(TimelineMethodStatistics),
+   qsort(statistics->method_statistics, (size_t) statistics->method_count, sizeof(TimelineSectionStatistics),
          comparison_function);
 }
 
-u64 ht_hash(TimelineMethod method) {
+u64 ht_hash(TimelineSection method) {
    u64 result = 17;
+   result = result * 31 + ht_hash(method.type);
    result = result * 31 + ht_hash(method.name);
    result = result * 31 + ht_hash(method.path);
    result = result * 31 + ht_hash((u64) method.line_no);
    return result;
 }
 
-bool ht_key_eq(TimelineMethod a, TimelineMethod b) {
-   return a.line_no == b.line_no && str_equal(a.name, b.name) && str_equal(a.path, b.path);
+bool ht_key_eq(TimelineSection a, TimelineSection b) {
+   return a.type == b.type &&  a.line_no == b.line_no && str_equal(a.name, b.name) && str_equal(a.path, b.path);
 }

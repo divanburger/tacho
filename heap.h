@@ -10,7 +10,7 @@
 #include "array_list.h"
 #include "hash_table.h"
 
-enum ObjectType {
+enum ObjectType : u8 {
    HO_UNKNOWN,
    HO_STRING,
    HO_HASH,
@@ -38,30 +38,65 @@ enum ObjectType {
 
 static const char *const object_type_names[HO_LAST] = {
       "UNKNOWN",
-      "STRING",
-      "HASH",
-      "ARRAY",
-      "OBJECT",
+      "String",
+      "Hash",
+      "Array",
+      "Object",
       "DATA",
-      "CLASS",
+      "Class",
       "IMEMO",
-      "STRUCT",
-      "RATIONAL",
+      "Struct",
+      "Rational",
       "MATCH",
-      "REGEXP",
-      "SYMBOL",
+      "RegExp",
+      "Symbol",
       "ICLASS",
-      "FILE",
-      "BIGNUM",
-      "FLOAT",
-      "COMPLEX",
-      "MODULE",
-      "NODE",
-      "ZOMBIE",
-      "ROOT",
+      "File",
+      "BigNum",
+      "Float",
+      "Complex",
+      "Module",
+      "Node",
+      "Zombie",
+      "Root",
 };
 
-enum ObjectFlags : u64 {
+enum ObjectMemoType : u8 {
+   HOM_UNKNOWN,
+   HOM_ENV,
+   HOM_CREF,
+   HOM_SVAR,
+   HOM_THROW_DATA,
+   HOM_IFUNC,
+   HOM_MEMO,
+   HOM_MENT,
+   HOM_ISEQ,
+   HOM_TMPBUF,
+   HOM_AST,
+   HOM_PARSER_STRTERM,
+   HOM_CALLINFO,
+   HOM_CALLCACHE,
+   HOM_LAST
+};
+
+static const char *const object_memo_type_names[HOM_LAST] = {
+      "unknown",
+      "env",
+      "Class reference",
+      "Special variable",
+      "Throw data",
+      "Internal function",
+      "memo",
+      "Method entry",
+      "Instruction sequence",
+      "Temporary buffer",
+      "AST",
+      "parser_strterm",
+      "callinfo",
+      "callcache",
+};
+
+enum ObjectFlags : u16 {
    OBJFLAG_NONE,
    OBJFLAG_OLD = 1UL << 0UL,
    OBJFLAG_EMDEDDED = 1UL << 1UL,
@@ -70,8 +105,9 @@ enum ObjectFlags : u64 {
 
 struct Object {
    u64 address;
-   u64 flags;
+   u16 flags;
    ObjectType type;
+   ObjectMemoType imemo_type;
    String value;
 
    ArrayList<Object *> referenced_by;

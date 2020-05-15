@@ -5,7 +5,7 @@
 #pragma once
 
 #include "util.h"
-#include "string.h"
+#include "str.h"
 #include "timeline.h"
 #include "files.h"
 #include "ui.h"
@@ -37,8 +37,8 @@ struct TimelineUIState {
    TimelineEvent *highlighted_event;
    TimelineEvent *active_event;
 
-   TimelineMethod *highlighted_method;
-   TimelineMethod *active_method;
+   TimelineSection *highlighted_method;
+   TimelineSection *active_method;
 
    TimelineStatistics selection_statistics;
 

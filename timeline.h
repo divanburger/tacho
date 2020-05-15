@@ -6,23 +6,24 @@
 
 #include <cstdint>
 #include "memory.h"
-#include "string.h"
+#include "str.h"
 #include "hash_table.h"
 
-enum EventType : i16 {
-   EVENT_METHOD_CALL,
-   EVENT_SECTION
+enum SectionType : i16 {
+   SECTION_METHOD,
+   SECTION_CUSTOM
 };
 
-struct TimelineMethod {
+struct TimelineSection {
    u32 method_id;
    int line_no;
    String name;
    String path;
+   SectionType type;
 };
 
-struct TimelineMethodStatistics {
-   TimelineMethod *method;
+struct TimelineSectionStatistics {
+   TimelineSection *method;
 
    i64 calls;
    i64 total_time;
@@ -39,12 +40,7 @@ struct TimelineEvent {
 
    i32 next_sibling_index;
 
-   EventType type;
-
-   union {
-      TimelineMethod *method;
-      String section_name;
-   };
+   TimelineSection *section;
 };
 
 struct TimelineEventChunk {
@@ -73,7 +69,7 @@ struct TimelineMethodTable {
    i32 count;
 
    u64 *hashes;
-   TimelineMethod **methods;
+   TimelineSection **methods;
 };
 
 struct Timeline {
@@ -91,13 +87,13 @@ struct Timeline {
    String name;
    MemoryArena arena;
 
-   HashTable<TimelineMethod> method_table;
+   HashTable<TimelineSection> section_table;
 };
 
 struct TimelineStatistics {
    i64 time_span;
    i32 method_count;
-   TimelineMethodStatistics *method_statistics;
+   TimelineSectionStatistics *method_statistics;
    MemoryArena arena;
 };
 
@@ -132,9 +128,9 @@ enum class MethodSortOrder : i8 {
    NONE
 };
 
-u64 ht_hash(TimelineMethod *method);
+u64 ht_hash(TimelineSection *method);
 
-bool ht_key_eq(TimelineMethod *a, TimelineMethod *b);
+bool ht_key_eq(TimelineSection *a, TimelineSection *b);
 
 bool tm_read_file_header(Timeline *timeline, const char *filename);
 
@@ -146,7 +142,7 @@ TimelineThread *tm_find_or_create_thread(Timeline *timeline, u32 thread_id, u32 
 
 TimelineEvent *tm_push_event(ThreadInfo *thread_info);
 
-TimelineMethod *tm_find_or_create_method(Timeline *timeline, String name, String path, int line_no);
+TimelineSection *tm_find_or_create_section(Timeline *timeline, SectionType type, String name, String path, int line_no);
 
 void tm_calculate_statistics(Timeline *timeline, TimelineStatistics *statistics, i64 start_time, i64 end_time,
                              i32 start_depth = 0, i16 thread_index = -1,

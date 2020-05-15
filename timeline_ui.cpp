@@ -63,16 +63,16 @@ void timeline_chart_update(UIContext *ctx, cairo_t *cr, Timeline *timeline, i32r
       state.draw_time_width = timeline->end_time - timeline->start_time;
    }
 
-   if (ctx->click_went_down) {
+   if (ctx->click_went_down[0]) {
       state.click_draw_start_time = state.draw_start_time;
       state.click_draw_y = state.draw_y;
    }
 
-   if (ctx->click) {
+   if (ctx->click[0]) {
       state.draw_start_time = (i64) (state.click_draw_start_time +
-                                     ((ctx->click_mouse_pos.x - ctx->mouse_pos.x) * state.draw_time_width) /
+                                     ((ctx->click_mouse_pos[0].x - ctx->mouse_pos.x) * state.draw_time_width) /
                                      area.w);
-      state.draw_y = (i64) (state.click_draw_y + (ctx->click_mouse_pos.y - ctx->mouse_pos.y));
+      state.draw_y = (i64) (state.click_draw_y + (ctx->click_mouse_pos[0].y - ctx->mouse_pos.y));
    }
 
    state.highlighted_event = nullptr;
@@ -163,14 +163,15 @@ void timeline_chart_update(UIContext *ctx, cairo_t *cr, Timeline *timeline, i32r
             Colour background = {0.33, 0.67, 1.00};
             Colour text_colour = {0.9, 0.9, 0.9};
 
-            if (event->type == EVENT_METHOD_CALL && event->method == state.active_method) {
+            auto section = event->section;
+            if (section->type == SECTION_METHOD && section == state.active_method) {
                background = {1.0, 0.67, 0.33};
-            } else if (event->type == EVENT_SECTION) {
+            } else if (section->type == SECTION_CUSTOM) {
                background = {0.67, 1.0, 0.33};
             }
 
-            if (event->type == EVENT_METHOD_CALL) {
-               TimelineMethod *method = event->method;
+            if (section->type == SECTION_METHOD) {
+               TimelineSection *method = event->section;
                if (!str_start_with(method->path, const_as_string("/home/divan/workspace-cc-"))) {
                   background = {0.67, 1.0, 0.33};
                }
@@ -204,25 +205,23 @@ void timeline_chart_update(UIContext *ctx, cairo_t *cr, Timeline *timeline, i32r
                cairo_rectangle(cr, text_x, y0, text_w, 15);
                cairo_clip(cr);
 
-               if (event->type == EVENT_METHOD_CALL) {
-                  TimelineMethod *method = event->method;
-
+               if (section->type == SECTION_METHOD) {
                   cairo_text_extents_t extents;
-                  cairo_text_extents(cr, method->name.data, &extents);
+                  cairo_text_extents(cr, section->name.data, &extents);
 
                   cairo_set_source_rgb(cr, text_colour);
                   cairo_move_to(cr, text_x, y0 + font_extents.ascent);
-                  cairo_show_text(cr, method->name.data);
+                  cairo_show_text(cr, section->name.data);
 
                   text_x += extents.x_advance + 4.0;
-               } else if (event->type == EVENT_SECTION) {
-                  if (str_nonblank(event->section_name)) {
+               } else if (section->type == SECTION_CUSTOM) {
+                  if (str_nonblank(section->name)) {
                      cairo_text_extents_t extents;
-                     cairo_text_extents(cr, event->section_name.data, &extents);
+                     cairo_text_extents(cr, section->name.data, &extents);
 
                      cairo_set_source_rgb(cr, text_colour);
                      cairo_move_to(cr, text_x, y0 + font_extents.ascent);
-                     cairo_show_text(cr, event->section_name.data);
+                     cairo_show_text(cr, section->name.data);
 
                      text_x += extents.x_advance + 4.0;
                   }
@@ -251,10 +250,10 @@ void timeline_chart_update(UIContext *ctx, cairo_t *cr, Timeline *timeline, i32r
       if (draw_y > ctx->height) break;
    }
 
-   if (state.highlighted_event && ctx->click_went_up && (abs(ctx->click_mouse_pos.x - ctx->mouse_pos.x) <= 2)) {
+   if (state.highlighted_event && ctx->click_went_up[0] && (abs(ctx->click_mouse_pos[0].x - ctx->mouse_pos.x) <= 2)) {
       state.active_event = state.highlighted_event;
       ctx->dirty = true;
-      if (ctx->f64_click) {
+      if (ctx->double_click[0]) {
          state.draw_start_time = state.active_event->start_time;
          state.draw_time_width = state.active_event->end_time - state.active_event->start_time;
       }
@@ -342,13 +341,13 @@ void timeline_methods_update(UIContext *ctx, cairo_t *cr, Timeline *timeline, i3
 
    // Methods
    irect table_inner_area = Rect(area.x, area.y + method_height, area.w, area.h - method_height);
-   auto scroll_area = ui_scrollable_begin("methods", table_inner_area,
+   auto scroll = ui_scrollable_begin("methods", table_inner_area,
                                           Vec(area.w, method_height * statistics->method_count));
 
-   i64 y = scroll_area.y;
+   i64 y = scroll.rect.y;
 
-   f64 column_pos[] = {0.0, scroll_area.w - 220.0, scroll_area.w - 160.0, scroll_area.w - 80.0};
-   f64 column_width[] = {scroll_area.w - 220.0, 60.0, 80.0, 80.0};
+   f64 column_pos[] = {0.0, scroll.rect.w - 220.0, scroll.rect.w - 160.0, scroll.rect.w - 80.0};
+   f64 column_width[] = {scroll.rect.w - 220.0, 60.0, 80.0, 80.0};
    MethodSortOrder column_sort_order[] = {
          MethodSortOrder::NAME, MethodSortOrder::CALLS, MethodSortOrder::TOTAL_TIME, MethodSortOrder::SELF_TIME
    };
@@ -449,7 +448,7 @@ void timeline_methods_update(UIContext *ctx, cairo_t *cr, Timeline *timeline, i3
          state.method_sort_order_highlighted = MethodSortOrder::NONE;
       }
 
-      if (ctx->click_went_up && state.method_sort_order_highlighted != MethodSortOrder::NONE) {
+      if (ctx->click_went_up[0] && state.method_sort_order_highlighted != MethodSortOrder::NONE) {
          MethodSortOrder old_sort_order = state.method_sort_order_active;
          state.method_sort_order_active = state.method_sort_order_highlighted;
          if (old_sort_order != state.method_sort_order_active) {
@@ -485,7 +484,7 @@ void timeline_methods_update(UIContext *ctx, cairo_t *cr, Timeline *timeline, i3
 
    cairo_reset_clip(cr);
 
-   if (state.highlighted_method && ctx->click_went_up && (abs(ctx->click_mouse_pos.x - ctx->mouse_pos.x) <= 2)) {
+   if (state.highlighted_method && ctx->click_went_up[0] && (abs(ctx->click_mouse_pos[0].x - ctx->mouse_pos.x) <= 2)) {
       state.active_method = state.highlighted_method;
       ctx->dirty = true;
    }
@@ -525,8 +524,8 @@ void timeline_update_runs(UIContext *ctx, cairo_t *cr, irect area) {
    cairo_font_extents_t font_extents;
    cairo_font_extents(cr, &font_extents);
 
-   auto scroll_area = ui_scrollable_begin("runs", area, Vec(area.w, (i32) state.timelines.count * 30));
-   i32 cur_y = scroll_area.y;
+   auto scroll = ui_scrollable_begin("runs", area, Vec(area.w, (i32) state.timelines.count * 30));
+   i32 cur_y = scroll.rect.y;
 
    cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
    cairo_paint(cr);
@@ -538,22 +537,22 @@ void timeline_update_runs(UIContext *ctx, cairo_t *cr, irect area) {
    while (arl_cursor_step(&state.timelines, &cursor)) {
       auto *timeline = arl_cursor_get<Timeline>(cursor);
 
-      if (inside(Rect(scroll_area.x, cur_y, scroll_area.w, 30), ctx->mouse_pos)) {
+      if (inside(Rect(scroll.rect.x, cur_y, scroll.rect.w, 30), ctx->mouse_pos)) {
          state.highlighted_timeline = timeline;
       }
 
-      if (state.highlighted_timeline && state.highlighted_timeline != state.active_timeline && ctx->click_went_up) {
+      if (state.highlighted_timeline && state.highlighted_timeline != state.active_timeline && ctx->click_went_up[0]) {
          switch_timeline(state.highlighted_timeline);
          ctx->dirty = true;
       }
 
       if (state.active_timeline == timeline) {
          cairo_set_source_rgb(cr, 0.3, 0.3, 0.3);
-         cairo_rectangle(cr, Rect(scroll_area.x, cur_y, scroll_area.w, 30));
+         cairo_rectangle(cr, Rect(scroll.rect.x, cur_y, scroll.rect.w, 30));
          cairo_fill(cr);
       } else if (state.highlighted_timeline == timeline) {
          cairo_set_source_rgb(cr, 0.2, 0.2, 0.2);
-         cairo_rectangle(cr, Rect(scroll_area.x, cur_y, scroll_area.w, 30));
+         cairo_rectangle(cr, Rect(scroll.rect.x, cur_y, scroll.rect.w, 30));
          cairo_fill(cr);
       }
 
@@ -663,26 +662,24 @@ void update(UIContext *ctx, cairo_t *cr) {
       f64 x = sx;
       f64 y = sy + 4;
 
-      TimelineMethod *method = nullptr;
+      TimelineSection *section = nullptr;
 
       if (state.highlighted_event) {
          auto event = state.highlighted_event;
-         if (event->type == EVENT_METHOD_CALL) {
-            method = event->method;
-         }
+         section = event->section;
       } else if (state.highlighted_method) {
-         method = state.highlighted_method;
+         section = state.highlighted_method;
       }
 
-      if (method) {
-         String line = method->name;
+      if (section) {
+         String line = section->name;
          cairo_move_to(cr, x + 6, y + font_extents.ascent);
          cairo_show_text(cr, line.data);
          cairo_text_extents(cr, line.data, &text_extents);
          w = (w < text_extents.width) ? text_extents.width : w;
          y += font_extents.height;
 
-         line = str_print(&ctx->temp, "%.*s:%i", str_prt(method->path), method->line_no);
+         line = str_print(&ctx->temp, "%.*s:%i", str_prt(section->path), section->line_no);
          cairo_move_to(cr, x + 6, y + font_extents.ascent);
          cairo_show_text(cr, line.data);
          cairo_text_extents(cr, line.data, &text_extents);

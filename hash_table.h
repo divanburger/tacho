@@ -12,7 +12,7 @@
 
 #include "util.h"
 #include "types.h"
-#include "string.h"
+#include "str.h"
 
 template<typename K>
 struct HashTableSlot {

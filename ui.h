@@ -12,6 +12,7 @@
 #include "hash_table.h"
 
 #define MAX_KEYS 512
+#define MAX_MOUSE_BUTTONS 3
 
 struct UIScrollable {
    i32 scroll;
@@ -36,13 +37,13 @@ struct UIContext {
    int mouse_delta_z;
 
    i32vec2 mouse_pos;
-   i32vec2 click_mouse_pos;
-
-   bool click;
-   bool click_went_up;
-   bool click_went_down;
-   bool f64_click;
-   f64 last_click;
+   i32vec2 click_mouse_pos[MAX_MOUSE_BUTTONS];
+   bool click[MAX_MOUSE_BUTTONS];
+   bool click_went_up[MAX_MOUSE_BUTTONS];
+   bool click_went_down[MAX_MOUSE_BUTTONS];
+   bool click_drag[MAX_MOUSE_BUTTONS];
+   bool double_click[MAX_MOUSE_BUTTONS];
+   f64 last_click[MAX_MOUSE_BUTTONS];
 
    bool key_down[MAX_KEYS];
    bool key_went_down[MAX_KEYS];
@@ -54,10 +55,16 @@ struct UIContext {
    HashTable<void*> scrollables;
 };
 
+struct ScrollState {
+   i32rect rect;
+   i32rect screen_area;
+   i32vec2 mouse_offset;
+};
+
 extern UIContext ui_context;
 
 void ui_run(void (*update)(UIContext *, cairo_t *));
 
-irect ui_scrollable_begin(const char *name, i32rect rect, i32vec2 content, i32 scroll_rate = 30);
-void ui_scrollable_end(const char *name);
+ScrollState ui_scrollable_begin(const char *name, i32rect rect, i32vec2 content = {-1, -1}, i32 scroll_rate = 30);
+void ui_scrollable_end(const char *name, i32vec2 content = {-1, -1});
 

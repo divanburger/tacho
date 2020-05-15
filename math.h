@@ -32,6 +32,8 @@ inline i32vec2 operator+(i32vec2 a, i32vec2 b) {return i32vec2{a.x+b.x, a.y+b.y}
 inline i32vec2 operator-(i32vec2 a, i32vec2 b) {return i32vec2{a.x-b.x, a.y-b.y};}
 inline i32vec2 operator*(i32vec2 a, i32vec2 b) {return i32vec2{a.x*b.x, a.y*b.y};}
 inline i32vec2 operator/(i32vec2 a, i32vec2 b) {return i32vec2{a.x/b.x, a.y/b.y};}
+inline bool operator==(i32vec2 a, i32vec2 b) {return a.x == b.x && a.y == b.y;}
+inline bool operator!=(i32vec2 a, i32vec2 b) {return a.x != b.x || a.y != b.y;}
 
 
 union i64vec2 {

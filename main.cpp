@@ -45,6 +45,8 @@ int main(int argc, char **args) {
          return 1;
       }
 
+      printf("TimelineEvent size: %li\n", sizeof(TimelineEvent));
+
       state.active_timeline = raw_alloc_type(Timeline);
 
       printf("Reading file: %s\n", args[2]);
@@ -91,6 +93,9 @@ int main(int argc, char **args) {
          printf("Could not show heap: %s is not a file\n", args[2]);
          return 1;
       }
+
+      printf("Object size: %li\n", sizeof(Object));
+      printf("Page size: %li\n", sizeof(Page));
 
       Heap heap = {};
       heap_read(&heap, args[2]);

@@ -6,7 +6,7 @@
 
 #include "array_list.h"
 #include "types.h"
-#include "string.h"
+#include "str.h"
 
 enum JsonNumberType : u8 {
    JNUM_UNKNOWN,
@@ -24,19 +24,19 @@ struct JsonNumber {
    } value;
 };
 
-enum JsonTokType : u8 {
-   JTOK_EOF,
+enum JsonTokType : u16 {
+   JTOK_EOF = 0,
+   JTOK_LBRACE = '{',
+   JTOK_RBRACE = '}',
+   JTOK_LBRACKET = '[',
+   JTOK_RBRACKET = ']',
+   JTOK_COLON = ':',
+   JTOK_COMMA = ',',
+   JTOK_NAME = 256,
    JTOK_STRING,
    JTOK_INTEGER,
    JTOK_UNSIGNED,
-   JTOK_FLOAT,
-   JTOK_LBRACE,
-   JTOK_RBRACE,
-   JTOK_LBRACKET,
-   JTOK_RBRACKET,
-   JTOK_COLON,
-   JTOK_COMMA,
-   JTOK_NAME
+   JTOK_FLOAT
 };
 
 struct JsonTok {
@@ -72,6 +72,11 @@ struct JsonParser {
    JsonParserFunc on_key;
    JsonParserFunc on_literal;
 };
+
+enum JsonFirstCharAction { JFCA_OTHER = 0, JFCA_SKIP, JFCA_TOKEN, JFCA_STRING, JFCA_NUMBER, JFCA_KEYWORD };
+static int json_first_char[256] = {0};
+
+void json_init();
 
 JsonNumber json_parse_number(const char **data);
 

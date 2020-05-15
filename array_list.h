@@ -43,7 +43,7 @@ void arl_init(ArrayList<T> *arl, Allocator *allocator = nullptr) {
 }
 
 template<typename T>
-void arl_make(Allocator *allocator = nullptr) {
+ArrayList<T> arl_make(Allocator *allocator = nullptr) {
    return ArrayList<T>{allocator, 0, nullptr, nullptr};
 }
 
@@ -101,6 +101,7 @@ bool arl_pop(ArrayList<T> *arl) {
 
       std_free(arl->allocator, block);
    }
+   return true;
 }
 
 template<typename T>

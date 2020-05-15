@@ -13,6 +13,7 @@ enum HeapReaderKey {
    HRK_UNKNOWN,
    HRK_ADDRESS,
    HRK_TYPE,
+   HRK_IMEMO_TYPE,
    HRK_OLD,
    HRK_EMBEDDED,
    HRK_MARKED,
@@ -40,6 +41,8 @@ void heap_on_key(void *user_data, JsonTok token) {
       reader->key = HRK_ADDRESS;
    } else if (str_equal(token.text, const_as_string("type"))) {
       reader->key = HRK_TYPE;
+   } else if (str_equal(token.text, const_as_string("imemo_type"))) {
+      reader->key = HRK_IMEMO_TYPE;
    } else if (str_equal(token.text, const_as_string("marked"))) {
       reader->key = HRK_MARKED;
    } else if (str_equal(token.text, const_as_string("embedded"))) {
@@ -110,10 +113,33 @@ void heap_on_literal(void *user_data, JsonTok token) {
          } else if (str_equal(token.text, const_as_string("ROOT"))) {
             reader->object.type = ObjectType::HO_ROOT;
          } else {
-            printf("UNKNOWN: %.*s\n", str_prt(token.text));
+            printf("UNKNOWN type: %.*s\n", str_prt(token.text));
          }
          break;
       }
+      case HRK_IMEMO_TYPE:
+         if (str_equal(token.text, const_as_string("iseq"))) {
+            reader->object.imemo_type = ObjectMemoType::HOM_ISEQ;
+         } else if (str_equal(token.text, const_as_string("ment"))) {
+            reader->object.imemo_type = ObjectMemoType::HOM_MENT;
+         } else if (str_equal(token.text, const_as_string("svar"))) {
+            reader->object.imemo_type = ObjectMemoType::HOM_SVAR;
+         } else if (str_equal(token.text, const_as_string("cref"))) {
+            reader->object.imemo_type = ObjectMemoType::HOM_CREF;
+         } else if (str_equal(token.text, const_as_string("env"))) {
+            reader->object.imemo_type = ObjectMemoType::HOM_ENV;
+         } else if (str_equal(token.text, const_as_string("ifunc"))) {
+            reader->object.imemo_type = ObjectMemoType::HOM_IFUNC;
+         } else if (str_equal(token.text, const_as_string("throw_data"))) {
+            reader->object.imemo_type = ObjectMemoType::HOM_THROW_DATA;
+         } else if (str_equal(token.text, const_as_string("tmpbuf"))) {
+            reader->object.imemo_type = ObjectMemoType::HOM_TMPBUF;
+         } else if (str_equal(token.text, const_as_string("memo"))) {
+            reader->object.imemo_type = ObjectMemoType::HOM_MEMO;
+         } else {
+            printf("UNKNOWN imemo type: %.*s\n", str_prt(token.text));
+         }
+         break;
       case HRK_MARKED:
          if (str_equal(token.text, const_as_string("true"))) reader->object.flags |= OBJFLAG_MARKED;
          break;
@@ -161,6 +187,11 @@ HeapLocation heap_find_object(Heap *heap, u64 address) {
       }
    }
 
+   if (low == high) {
+      auto cur_page = heap->pages[low];
+      if (cur_page->id == page_id) page = cur_page;
+   }
+
    if (page) {
       location.page = page;
       location.slot_index = (address - location.page->slot_start_address) / 40;
@@ -193,6 +224,8 @@ void heap_read(Heap *heap, const char *filename) {
 
    size_t buffer_size = 1024 * 1024 * 16;
    char *buffer = (char *) malloc(buffer_size);
+
+   json_init();
 
    input = fopen(filename, "r");
 

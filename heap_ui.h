@@ -27,11 +27,15 @@ struct HeapUIState {
    PageViewType page_view;
    SlotViewType slot_view;
 
-   f64 click_draw_page_start;
-   f64 draw_page_start;
    f64 pages_per_width;
 
+   f64 scroll_x;
+   f64 scroll_y;
+   f64 click_scroll_x;
+   f64 click_scroll_y;
+
    HeapLocation highlighted;
+   HeapLocation highlighted_new;
    HeapLocation active_start;
    HeapLocation active_end;
 
