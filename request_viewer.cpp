@@ -27,8 +27,8 @@ enum GroupByTime {
 };
 
 const char *column_names[] = {"PID", "method", "path", "format", "controller", "action", "status", "duration",
-                              "gc_count", "gc_count_d", "gc_live_slots", "gc_live_slots_d", "gc_alloc_pages", "gc_alloc_pages_d",
-                              "gc_old_objects", "user"};
+                              "gc_count", "gc_count_d", "gc_live_slots", "gc_live_slots_d", "gc_alloc_pages",
+                              "gc_alloc_pages_d", "gc_old_objects", "user"};
 const ColumnType column_types[] = {COL_ENUM, COL_ENUM, COL_UNKNOWN, COL_ENUM, COL_ENUM, COL_ENUM, COL_ENUM, COL_INTEGER,
                                    COL_INTEGER, COL_INTEGER, COL_INTEGER, COL_INTEGER, COL_INTEGER, COL_INTEGER,
                                    COL_INTEGER, COL_UNKNOWN};
@@ -79,7 +79,7 @@ struct Log {
 };
 
 struct Reader {
-   char* filename;
+   char *filename;
    volatile bool follow;
 
    i64 line_no;
@@ -104,11 +104,15 @@ struct {
 
    volatile bool refilter;
    volatile bool initialized;
+
+   i32 hover_request_index;
 } state;
 
 void update_chart(UIContext *ctx, cairo_t *cr, i32rect area) {
    cairo_rectangle(cr, area);
    cairo_clip(cr);
+
+   state.hover_request_index = -1;
 
    if (state.draw_time_width <= 0) {
       state.group_by = GROUPBY_SECOND;
@@ -198,7 +202,7 @@ void update_chart(UIContext *ctx, cairo_t *cr, i32rect area) {
 
          if (last_time + 1 < request->time) {
             if (count == 1) {
-               cairo_arc(cr, x, y, 1.5, 0, M_PI*2);
+               cairo_arc(cr, x, y, 1.5, 0, M_PI * 2);
                cairo_fill(cr);
             } else {
                cairo_stroke(cr);
@@ -211,12 +215,16 @@ void update_chart(UIContext *ctx, cairo_t *cr, i32rect area) {
          x = (request->time - state.draw_time_start) * x_factor;
          y = area.h - (value->integer - column->min) * y_factor;
 
+         if ((abs(x - (double) ctx->mouse_pos.x) < 8.0) && (abs(y - (double) ctx->mouse_pos.y) < 8.0)) {
+            state.hover_request_index = request_index;
+         }
+
          count ? cairo_line_to(cr, x, y) : cairo_move_to(cr, x, y);
          count++;
       }
 
       if (count == 1) {
-         cairo_arc(cr, x, y, 1.5, 0, M_PI*2);
+         cairo_arc(cr, x, y, 1.5, 0, M_PI * 2);
          cairo_fill(cr);
       } else {
          cairo_stroke(cr);
@@ -224,6 +232,35 @@ void update_chart(UIContext *ctx, cairo_t *cr, i32rect area) {
    }
 
    cairo_reset_clip(cr);
+
+   if (state.hover_request_index >= 0) {
+      double x = ctx->mouse_pos.x + 8.0;
+      double y = ctx->mouse_pos.y + 8.0;
+
+      auto request = state.log.requests + state.hover_request_index;
+
+      cairo_set_source_rgb(cr, 1.0, 1.0, 1.0);
+
+      for (i32 column_index = 0; column_index < state.log.column_count; column_index++) {
+         Column *column = state.log.columns + column_index;
+         Value *value = request->values + column_index;
+
+         String text;
+         if (column->type == COL_INTEGER) {
+            text = str_print(&ctx->temp, "%.*s: %lli", str_prt(column->name), value->integer);
+         } else if (column->type == COL_ENUM) {
+            String str_value = column->values[value->enum_id];
+            text = str_print(&ctx->temp, "%.*s: %.*s", str_prt(column->name), str_prt(str_value));
+         } else {
+            continue;
+         }
+
+         cairo_move_to(cr, x, y);
+         cairo_show_text(cr, text.data);
+
+         y += 16;
+      }
+   }
 }
 
 void update_settings(UIContext *ctx, cairo_t *cr, i32rect area) {
@@ -249,7 +286,7 @@ void update_settings(UIContext *ctx, cairo_t *cr, i32rect area) {
 
       i32rect entry_rect = Rect(scroll.rect.x, (int) y, scroll.rect.w, entry_height);
       bool hover = inside(entry_rect, ctx->mouse_pos);
-      if (hover && ctx->click_went_up) {
+      if (hover && ctx->click_went_up[0]) {
          column->enabled = !column->enabled;
          ctx->dirty = true;
          state.refilter = true;
@@ -275,7 +312,7 @@ void update_settings(UIContext *ctx, cairo_t *cr, i32rect area) {
 
       i32rect entry_rect = Rect(scroll.rect.x, (int) y, scroll.rect.w, entry_height);
       bool hover = inside(entry_rect, ctx->mouse_pos);
-      if (hover && ctx->click_went_up) {
+      if (hover && ctx->click_went_up[0]) {
          column->chosen = -1;
          ctx->dirty = true;
          state.refilter = true;
@@ -290,7 +327,7 @@ void update_settings(UIContext *ctx, cairo_t *cr, i32rect area) {
 
          i32rect option_rect = Rect(scroll.rect.x, (int) y, scroll.rect.w, entry_height);
          bool option_hover = inside(option_rect, ctx->mouse_pos);
-         if (option_hover && ctx->click_went_up) {
+         if (option_hover && ctx->click_went_up[0]) {
             column->chosen = value_index;
             ctx->dirty = true;
             state.refilter = true;
@@ -300,7 +337,8 @@ void update_settings(UIContext *ctx, cairo_t *cr, i32rect area) {
          cairo_arc(cr, scroll.rect.x + 20 + 10, y + entry_height / 2, 4, 0, M_PI * 2);
          column->chosen == value_index ? cairo_fill(cr) : cairo_stroke(cr);
 
-         cairo_move_to(cr, scroll.rect.x + 20 + 20, y + (entry_height - font_extents.height) / 2 + font_extents.ascent);
+         cairo_move_to(cr, scroll.rect.x + 20 + 20,
+                       y + (entry_height - font_extents.height) / 2 + font_extents.ascent);
          cairo_show_text(cr, name.data);
 
          y += entry_height;
@@ -415,8 +453,8 @@ bool parse_tag(Reader *reader) {
    return true;
 }
 
-int read_file(void* data) {
-   auto reader = (Reader*)data;
+int read_file(void *data) {
+   auto reader = (Reader *) data;
 
    FILE *input = nullptr;
 
